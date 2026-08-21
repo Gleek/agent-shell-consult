@@ -1,34 +1,43 @@
-# agent-shell-switch
+# Agent Shell Consult
 
-A `completing-read` switcher for active
-[agent-shell](https://github.com/xenodium/agent-shell) buffers.
+Agent Shell now includes `agent-shell-switch-buffer`. This package keeps the
+native switcher as its fallback and adds a richer interface when Consult is
+installed.
 
-Candidates are grouped by project. Each row contains an aligned status column
-and, for ready agents, the time since the last ACP activity.
+The Consult view preserves agent-shell's recent-buffer order and moves the
+current buffer to the bottom. It adds:
 
-When Consult is installed, moving through the candidates previews each agent
-shell. Aborting restores the previous buffer. The command falls back to plain
-`completing-read` when Consult is unavailable.
+- project, status, idle time, and session-title columns;
+- live preview while moving between candidates;
+- agent-shell's icons and buffer-name faces;
+- a dedicated Embark action map.
 
-## Usage
+## Installation
 
 ```elisp
-(use-package agent-shell-switch
-  :ensure (:host github :repo "Gleek/agent-shell-switch")
+(use-package agent-shell-consult
+  :ensure (:host github :repo "Gleek/agent-shell-consult")
   :after agent-shell
-  :bind (("C-c q b" . agent-shell-switch)
+  :bind (("C-c q b" . agent-shell-consult)
          (:map agent-shell-mode-map
-               ("C-z b" . agent-shell-switch))))
+               ("C-z b" . agent-shell-consult))))
 ```
 
-Without `use-package`:
+Without Consult, `agent-shell-consult` delegates selection to agent-shell's
+native reader. Existing `agent-shell-switch` configurations continue to work
+through a compatibility shim.
 
-```elisp
-(require 'agent-shell-switch)
-(global-set-key (kbd "C-c q b") #'agent-shell-switch)
-```
+## Embark actions
 
-Run `M-x agent-shell-switch`, select a buffer, and press Enter.
-
-The status snapshot recognizes agents that are working, ready, starting, or
-waiting for a permission response.
+| Key | Action |
+|---|---|
+| `RET` | Switch to the agent shell |
+| `k` | Stop the agent process |
+| `c` | Create a new agent shell |
+| `r` | Restart the agent shell |
+| `d` | Delete all stopped agent-shell buffers |
+| `m` | Set the session mode |
+| `M` | Set the model |
+| `C-c C-c` | Interrupt the current request |
+| `t` | View ACP traffic |
+| `l` | Toggle ACP logging |
