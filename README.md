@@ -5,7 +5,10 @@ native switcher as its fallback and adds a richer interface when Consult is
 installed.
 
 The Consult view preserves agent-shell's recent-buffer order and moves the
-current buffer to the bottom. It adds:
+current buffer to the bottom. When every buffer uses the same agent, it removes
+the repeated agent prefix from the candidate names. Preview, selection, and
+Embark actions still resolve each candidate to its full buffer name. It also
+adds:
 
 - project, status, idle time, and session-title columns;
 - live preview while moving between candidates;

@@ -150,6 +150,20 @@
                     (concat "  " (propertize title 'face
                                               'agent-shell-session-title)))))))
 
+(defun agent-shell-consult--preview-state (entries)
+  "Return a Consult preview state for candidate ENTRIES.
+Consult's buffer state treats the candidate text as a buffer name.  Our
+candidate text may omit the common agent prefix, so translate it back to the
+stored buffer's full name before delegating to Consult."
+  (let ((state (consult--buffer-state)))
+    (lambda (action candidate)
+      (funcall state action
+               (when candidate
+                 (when-let* ((entry (agent-shell-consult--entry
+                                     candidate entries))
+                             (buffer (plist-get entry :buffer)))
+                   (buffer-name buffer)))))))
+
 (defun agent-shell-consult--read (buffers)
   "Read one of BUFFERS with Consult and return it."
   (let* ((entries (agent-shell-consult--entries buffers))
@@ -173,7 +187,7 @@
                          :category 'agent-shell-consult-buffer
                          :sort nil
                          :annotate annotate
-                         :state (consult--buffer-state)
+                         :state (agent-shell-consult--preview-state entries)
                          :preview-key 'any)))
     (plist-get (agent-shell-consult--entry selection entries) :buffer)))
 
