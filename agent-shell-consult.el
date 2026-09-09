@@ -115,11 +115,20 @@
                               (car (split-string
                                     (or (map-nested-elt agent-shell--state
                                                         '(:session :title)) "")
-                                    "\n")))))
-           (cons (propertize name
-                             'face 'agent-shell-buffer-name
-                             'agent-shell-consult-buffer buffer)
+                                    "\n"))))
+                      (candidate (concat name
+                                         (unless (string-empty-p title)
+                                           (concat " " title)))))
+           ;; Keep TITLE in the candidate so completion styles can match it,
+           ;; while displaying only NAME; TITLE is rendered as an annotation.
+           (put-text-property 0 (length candidate) 'display
+                              (propertize name 'face 'agent-shell-buffer-name)
+                              candidate)
+           (put-text-property 0 (length candidate)
+                              'agent-shell-consult-buffer buffer candidate)
+           (cons candidate
                  (list :buffer buffer
+                       :name name
                        :icon (when agent-shell-show-config-icons
                                (agent-shell--config-icon :config config))
                        :project (agent-shell-consult--project buffer)
@@ -135,7 +144,8 @@
 (defun agent-shell-consult--affix (candidate entries widths)
   "Add metadata to CANDIDATE using ENTRIES and column WIDTHS."
   (let* ((entry (agent-shell-consult--entry candidate entries))
-         (padding (+ 2 (- (nth 0 widths) (string-width candidate))))
+         (padding (+ 2 (- (nth 0 widths)
+                          (string-width (plist-get entry :name)))))
          (project (plist-get entry :project))
          (status (plist-get entry :status))
          (age (or (plist-get entry :age) ""))
@@ -174,7 +184,7 @@ stored buffer's full name before delegating to Consult."
                            (mapcar (lambda (entry)
                                      (string-width (or (funcall getter entry) "")))
                                    entries)))
-                  (list #'car
+                  (list (lambda (e) (plist-get (cdr e) :name))
                         (lambda (e) (plist-get (cdr e) :project))
                         (lambda (e) (plist-get (cdr e) :status))
                         (lambda (e) (plist-get (cdr e) :age)))))
