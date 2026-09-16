@@ -11,6 +11,8 @@ Embark actions still resolve each candidate to its full buffer name. It also
 adds:
 
 - project, status, idle time, and session-title columns;
+- matching by project, buffer name, or session title;
+- narrowing by current project or shell state;
 - live preview while moving between candidates;
 - agent-shell's icons and buffer-name faces;
 - a dedicated Embark action map.
@@ -35,12 +37,13 @@ through a compatibility shim.
 | Key | Action |
 |---|---|
 | `RET` | Switch to the agent shell |
-| `k` | Stop the agent process |
-| `c` | Create a new agent shell |
+| `k` | Kill the agent-shell buffer |
+| `K` | Stop the agent process |
 | `r` | Restart the agent shell |
-| `d` | Delete all stopped agent-shell buffers |
+| `R` | Reload the current session |
 | `m` | Set the session mode |
-| `M` | Set the model |
-| `C-c C-c` | Interrupt the current request |
-| `t` | View ACP traffic |
-| `l` | Toggle ACP logging |
+| `l` | Set the model |
+| `i` | Interrupt the current request |
+| `t` | Open the session transcript |
+| `L` | Toggle ACP logging |
+| `T` | View ACP traffic |

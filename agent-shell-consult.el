@@ -22,10 +22,21 @@
 (declare-function agent-shell--config-icon "agent-shell")
 (declare-function agent-shell--read-shell-buffer "agent-shell")
 (defvar embark-keymap-alist)
+(defvar consult--narrow)
 
 (defun agent-shell-consult--buffer (candidate)
   "Return the live agent-shell buffer stored on CANDIDATE."
-  (let ((buffer (get-text-property 0 'agent-shell-consult-buffer candidate)))
+  (let* ((buffer (get-text-property 0 'agent-shell-consult-buffer candidate))
+         (matches
+          (unless (buffer-live-p buffer)
+            (seq-keep
+             (lambda (entry)
+               (when (or (equal candidate (car entry))
+                         (equal candidate (plist-get (cdr entry) :name)))
+                 (plist-get (cdr entry) :buffer)))
+             (agent-shell-consult--entries (agent-shell-buffers))))))
+    (when (= (length matches) 1)
+      (setq buffer (car matches)))
     (unless (buffer-live-p buffer)
       (user-error "Agent-shell buffer no longer exists"))
     buffer))
@@ -60,26 +71,32 @@
 (defun agent-shell-consult--status (buffer now)
   "Return BUFFER's faced status and idle age at NOW."
   (with-current-buffer buffer
-    (let ((status (if (agent-shell-consult--live-p buffer)
-                      (agent-shell-status :shell-buffer buffer)
-                    'killed)))
+    (let* ((status (if (agent-shell-consult--live-p buffer)
+                       (agent-shell-status :shell-buffer buffer)
+                     'killed))
+           (kind (if (eq status 'ready)
+                     (cond ((not (map-elt agent-shell--state :initialized))
+                            'starting)
+                           ((not (map-nested-elt agent-shell--state
+                                                 '(:session :id)))
+                            'no-session)
+                           (t 'ready))
+                   status)))
       (list
-       (pcase status
+       (pcase kind
          ('blocked (propertize "Waiting" 'face 'agent-shell-error))
          ('busy (propertize "Working" 'face 'agent-shell-warning))
          ('killed (propertize "Killed" 'face 'agent-shell-error))
-         ('ready
-          (cond ((not (map-elt agent-shell--state :initialized))
-                 (propertize "Starting..." 'face 'shadow))
-                ((not (map-nested-elt agent-shell--state '(:session :id)))
-                 (propertize "No Session" 'face 'shadow))
-                (t (propertize "Ready" 'face 'agent-shell-success))))
+         ('starting (propertize "Starting..." 'face 'shadow))
+         ('no-session (propertize "No Session" 'face 'shadow))
+         ('ready (propertize "Ready" 'face 'agent-shell-success))
          (_ (propertize "Unknown" 'face 'shadow)))
        (when-let* (((eq status 'ready))
                    (last-activity (map-elt agent-shell--state
                                            :last-activity-time)))
          (propertize (agent-shell-consult--duration last-activity now)
-                     'face 'shadow))))))
+                     'face 'shadow))
+       kind))))
 
 (defun agent-shell-consult--buffers ()
   "Return agent-shell buffers with the current buffer last."
@@ -103,7 +120,7 @@
     (mapcar
      (lambda (buffer)
        (with-current-buffer buffer
-         (pcase-let* ((`(,status ,age)
+         (pcase-let* ((`(,status ,age ,status-kind)
                        (agent-shell-consult--status buffer now))
                       (config (map-elt agent-shell--state :agent-config))
                       (prefix (agent-shell--buffer-name-prefix
@@ -116,26 +133,53 @@
                                     (or (map-nested-elt agent-shell--state
                                                         '(:session :title)) "")
                                     "\n"))))
-                      (candidate (concat name
+                      (project (agent-shell-consult--project buffer))
+                      (candidate (concat name " " project
                                          (unless (string-empty-p title)
                                            (concat " " title)))))
-           ;; Keep TITLE in the candidate so completion styles can match it,
-           ;; while displaying only NAME; TITLE is rendered as an annotation.
-           (put-text-property 0 (length candidate) 'display
-                              (propertize name 'face 'agent-shell-buffer-name)
-                              candidate)
+           ;; Keep PROJECT and TITLE in the candidate so completion styles can
+           ;; match them, while displaying only NAME; both are annotations.
+           (put-text-property
+            0 (length candidate) 'display
+            (propertize name
+                        'face 'agent-shell-buffer-name
+                        'agent-shell-consult-buffer buffer)
+            candidate)
            (put-text-property 0 (length candidate)
                               'agent-shell-consult-buffer buffer candidate)
+           (put-text-property 0 (length candidate)
+                              'agent-shell-consult-project project candidate)
+           (put-text-property 0 (length candidate)
+                              'agent-shell-consult-status status-kind candidate)
            (cons candidate
                  (list :buffer buffer
                        :name name
                        :icon (when agent-shell-show-config-icons
                                (agent-shell--config-icon :config config))
-                       :project (agent-shell-consult--project buffer)
+                       :project project
                        :status status
                        :age age
                        :title (truncate-string-to-width title 50 nil nil "..."))))))
      buffers)))
+
+(defun agent-shell-consult--narrow (project)
+  "Return Consult narrowing configuration for the current PROJECT."
+  (let ((statuses '((?w . busy) (?b . blocked) (?r . ready)
+                    (?s . starting) (?n . no-session) (?k . killed))))
+    (list :predicate
+          (lambda (candidate)
+            (if (eq consult--narrow ?p)
+                (equal (get-text-property 0 'agent-shell-consult-project candidate)
+                       project)
+              (eq (get-text-property 0 'agent-shell-consult-status candidate)
+                  (alist-get consult--narrow statuses))))
+          :keys '((?p . "Current project")
+                  (?w . "Working")
+                  (?b . "Waiting")
+                  (?r . "Ready")
+                  (?s . "Starting")
+                  (?n . "No session")
+                  (?k . "Killed")))))
 
 (defun agent-shell-consult--entry (candidate entries)
   "Return CANDIDATE's data from ENTRIES."
@@ -176,7 +220,8 @@ stored buffer's full name before delegating to Consult."
 
 (defun agent-shell-consult--read (buffers)
   "Read one of BUFFERS with Consult and return it."
-  (let* ((entries (agent-shell-consult--entries buffers))
+  (let* ((project (agent-shell-consult--project (current-buffer)))
+         (entries (agent-shell-consult--entries buffers))
          (candidates (mapcar #'car entries))
          (widths
           (mapcar (lambda (getter)
@@ -196,6 +241,7 @@ stored buffer's full name before delegating to Consult."
                          :require-match t
                          :category 'agent-shell-consult-buffer
                          :sort nil
+                         :narrow (agent-shell-consult--narrow project)
                          :annotate annotate
                          :state (agent-shell-consult--preview-state entries)
                          :preview-key 'any)))
@@ -212,26 +258,15 @@ stored buffer's full name before delegating to Consult."
   (switch-to-buffer (agent-shell-consult--buffer candidate)))
 
 (defun agent-shell-consult-action-kill (candidate)
+  "Kill CANDIDATE's buffer."
+  (interactive "sAgent shell: ")
+  (kill-buffer (agent-shell-consult--buffer candidate)))
+
+(defun agent-shell-consult-action-kill-agent (candidate)
   "Stop CANDIDATE's agent process."
   (interactive "sAgent shell: ")
   (when (yes-or-no-p (format "Kill agent-shell process in %s? " candidate))
     (agent-shell-consult--call candidate #'comint-send-eof)))
-
-(defun agent-shell-consult-action-new (_candidate)
-  "Create a new agent shell."
-  (interactive "sAgent shell: ")
-  (agent-shell t))
-
-(defun agent-shell-consult-action-delete-killed (_candidate)
-  "Delete all stopped agent-shell buffers."
-  (interactive "sAgent shell: ")
-  (let ((buffers (seq-remove #'agent-shell-consult--live-p
-                             (agent-shell-buffers))))
-    (if (null buffers)
-        (message "No killed agent-shell buffers")
-      (when (yes-or-no-p (format "Delete %d killed agent-shell buffers? "
-                                 (length buffers)))
-        (mapc #'kill-buffer buffers)))))
 
 (defmacro agent-shell-consult--action (name function)
   "Define Embark action NAME that calls FUNCTION in its candidate."
@@ -241,24 +276,27 @@ stored buffer's full name before delegating to Consult."
      (agent-shell-consult--call candidate #',function)))
 
 (agent-shell-consult--action agent-shell-consult-action-restart agent-shell-restart)
+(agent-shell-consult--action agent-shell-consult-action-reload agent-shell-reload)
 (agent-shell-consult--action agent-shell-consult-action-set-mode agent-shell-set-session-mode)
 (agent-shell-consult--action agent-shell-consult-action-set-model agent-shell-set-session-model)
 (agent-shell-consult--action agent-shell-consult-action-interrupt agent-shell-interrupt)
+(agent-shell-consult--action agent-shell-consult-action-open-transcript agent-shell-open-transcript)
 (agent-shell-consult--action agent-shell-consult-action-view-traffic agent-shell-view-traffic)
 (agent-shell-consult--action agent-shell-consult-action-toggle-logging agent-shell-toggle-logging)
 
 (defvar agent-shell-consult-embark-map
   (let ((map (make-sparse-keymap)))
     (dolist (binding '(("RET" . agent-shell-consult-action-switch)
-                       ("k" . agent-shell-consult-action-kill)
-                       ("c" . agent-shell-consult-action-new)
-                       ("r" . agent-shell-consult-action-restart)
-                       ("d" . agent-shell-consult-action-delete-killed)
+                       ("T" . agent-shell-consult-action-view-traffic)
+                       ("L" . agent-shell-consult-action-toggle-logging)
+                       ("t" . agent-shell-consult-action-open-transcript)
+                       ("i" . agent-shell-consult-action-interrupt)
+                       ("l" . agent-shell-consult-action-set-model)
                        ("m" . agent-shell-consult-action-set-mode)
-                       ("M" . agent-shell-consult-action-set-model)
-                       ("C-c C-c" . agent-shell-consult-action-interrupt)
-                       ("t" . agent-shell-consult-action-view-traffic)
-                       ("l" . agent-shell-consult-action-toggle-logging)))
+                       ("R" . agent-shell-consult-action-reload)
+                       ("r" . agent-shell-consult-action-restart)
+                       ("K" . agent-shell-consult-action-kill-agent)
+                       ("k" . agent-shell-consult-action-kill)))
       (define-key map (kbd (car binding)) (cdr binding)))
     map)
   "Embark actions for `agent-shell-consult' candidates.")
