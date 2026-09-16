@@ -29,8 +29,7 @@ adds:
 ```
 
 Without Consult, `agent-shell-consult` delegates selection to agent-shell's
-native reader. Existing `agent-shell-switch` configurations continue to work
-through a compatibility shim.
+native reader.
 
 ## Embark actions
 
