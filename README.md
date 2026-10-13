@@ -4,8 +4,10 @@ Agent Shell now includes `agent-shell-switch-buffer`. This package keeps the
 native switcher as its fallback and adds a richer interface when Consult is
 installed.
 
-The Consult view preserves agent-shell's recent-buffer order and moves the
-current buffer to the bottom. When every buffer uses the same agent, it removes
+The Consult view groups sessions into Active (working, waiting for permission,
+starting, or ready for less than a day) and Inactive (everything else). It
+preserves agent-shell's recent-buffer order within each group and moves the
+current buffer to the bottom of its group. When every buffer uses the same agent, it removes
 the repeated agent prefix from the candidate names. Preview, selection, and
 Embark actions still resolve each candidate to its full buffer name. It also
 adds:
@@ -30,6 +32,11 @@ adds:
 
 Without Consult, `agent-shell-consult` delegates selection to agent-shell's
 native reader.
+
+When `agent-shell-attention` is loaded and tracking output, unread output gets
+a `●` beside the status. Previewing or selecting the buffer clears that unread
+attention, while pending permissions remain. This optional integration uses
+attention's private APIs; no additional tracking is installed by this package.
 
 ## Embark actions
 

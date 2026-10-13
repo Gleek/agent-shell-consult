@@ -23,6 +23,24 @@
 (declare-function agent-shell--read-shell-buffer "agent-shell")
 (defvar embark-keymap-alist)
 (defvar consult--narrow)
+(declare-function agent-shell-attention--pending-live-entries "agent-shell-attention")
+(declare-function agent-shell-attention--pending-entry-permission-p "agent-shell-attention")
+(declare-function agent-shell-attention--permission-pending-p "agent-shell-attention")
+(declare-function agent-shell-attention--clear-buffer "agent-shell-attention")
+
+(defun agent-shell-consult--unread-p (buffer)
+  "Return non-nil when attention tracks unread output for BUFFER.
+Permission requests are not unread output.  Attention is optional."
+  (when (seq-every-p
+         #'fboundp
+         '(agent-shell-attention--pending-live-entries
+           agent-shell-attention--pending-entry-permission-p
+           agent-shell-attention--permission-pending-p
+           agent-shell-attention--clear-buffer))
+    (when-let* ((entry (alist-get buffer
+                                 (agent-shell-attention--pending-live-entries))))
+      (and (not (agent-shell-attention--pending-entry-permission-p entry))
+           (not (agent-shell-attention--permission-pending-p buffer))))))
 
 (defun agent-shell-consult--buffer (candidate)
   "Return the live agent-shell buffer stored on CANDIDATE."
@@ -134,6 +152,14 @@
                                                         '(:session :title)) "")
                                     "\n"))))
                       (project (agent-shell-consult--project buffer))
+                      (last-activity (map-elt agent-shell--state :last-activity-time))
+                      (group (if (or (memq status-kind '(busy blocked starting))
+                                     (and (eq status-kind 'ready)
+                                          last-activity
+                                          (< (float-time (time-subtract now last-activity))
+                                             86400)))
+                                 "Active"
+                               "Inactive"))
                       (candidate (concat name " " project
                                          (unless (string-empty-p title)
                                            (concat " " title)))))
@@ -151,6 +177,8 @@
                               'agent-shell-consult-project project candidate)
            (put-text-property 0 (length candidate)
                               'agent-shell-consult-status status-kind candidate)
+           (put-text-property 0 (length candidate)
+                              'agent-shell-consult-group group candidate)
            (cons candidate
                  (list :buffer buffer
                        :name name
@@ -191,7 +219,10 @@
          (padding (+ 2 (- (nth 0 widths)
                           (string-width (plist-get entry :name)))))
          (project (plist-get entry :project))
-         (status (plist-get entry :status))
+         (status (concat (plist-get entry :status)
+                         (when (agent-shell-consult--unread-p
+                                (plist-get entry :buffer))
+                           (propertize " ●" 'face 'agent-shell-success))))
          (age (or (plist-get entry :age) ""))
          (title (plist-get entry :title)))
     (list candidate
@@ -211,18 +242,27 @@ candidate text may omit the common agent prefix, so translate it back to the
 stored buffer's full name before delegating to Consult."
   (let ((state (consult--buffer-state)))
     (lambda (action candidate)
-      (funcall state action
-               (when candidate
-                 (when-let* ((entry (agent-shell-consult--entry
-                                     candidate entries))
-                             (buffer (plist-get entry :buffer)))
-                   (buffer-name buffer)))))))
+      (let ((buffer (when candidate
+                      (plist-get (agent-shell-consult--entry candidate entries)
+                                 :buffer))))
+        (prog1 (funcall state action
+                        (when (buffer-live-p buffer) (buffer-name buffer)))
+          (when (and (memq action '(preview return))
+                     (buffer-live-p buffer)
+                     (get-buffer-window buffer t)
+                     (agent-shell-consult--unread-p buffer))
+            (agent-shell-attention--clear-buffer buffer)))))))
 
 (defun agent-shell-consult--read (buffers)
   "Read one of BUFFERS with Consult and return it."
   (let* ((project (agent-shell-consult--project (current-buffer)))
          (entries (agent-shell-consult--entries buffers))
-         (candidates (mapcar #'car entries))
+         (candidates
+          (seq-sort
+           (lambda (a b)
+             (and (equal (get-text-property 0 'agent-shell-consult-group a) "Active")
+                  (equal (get-text-property 0 'agent-shell-consult-group b) "Inactive")))
+           (mapcar #'car entries)))
          (widths
           (mapcar (lambda (getter)
                     (apply #'max
@@ -231,7 +271,7 @@ stored buffer's full name before delegating to Consult."
                                    entries)))
                   (list (lambda (e) (plist-get (cdr e) :name))
                         (lambda (e) (plist-get (cdr e) :project))
-                        (lambda (e) (plist-get (cdr e) :status))
+                        (lambda (e) (concat (plist-get (cdr e) :status) "  "))
                         (lambda (e) (plist-get (cdr e) :age)))))
          (annotate (lambda (candidate)
                      (agent-shell-consult--affix candidate entries widths)))
@@ -241,6 +281,10 @@ stored buffer's full name before delegating to Consult."
                          :require-match t
                          :category 'agent-shell-consult-buffer
                          :sort nil
+                         :group (lambda (candidate transform)
+                                  (if transform candidate
+                                    (get-text-property 0 'agent-shell-consult-group
+                                                       candidate)))
                          :narrow (agent-shell-consult--narrow project)
                          :annotate annotate
                          :state (agent-shell-consult--preview-state entries)
