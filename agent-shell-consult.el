@@ -233,7 +233,8 @@ Permission requests are not unread output.  Attention is optional."
           (if-let* ((icon (plist-get entry :icon))) (concat icon " ") "")
           (concat (make-string padding ?\s)
                   (string-pad (propertize project 'face 'shadow) (nth 1 widths))
-                  "  " (string-pad status (nth 2 widths))
+                  "  " status
+                  (make-string (max 0 (- (nth 2 widths) (string-width status))) ?\s)
                   "  " (string-pad age (nth 3 widths))
                   (unless (string-empty-p title)
                     (concat "  " (propertize title 'face

@@ -1,23 +1,26 @@
 # Agent Shell Consult
 
-Agent Shell now includes `agent-shell-switch-buffer`. This package keeps the
-native switcher as its fallback and adds a richer interface when Consult is
-installed.
+A Consult interface for managing agent-shell buffers.
+Acts like an enhanced version `agent-shell-switch-buffer`, with session details,
+live previews, and Embark actions.
 
-The Consult view groups sessions into Active (working, waiting for permission,
-starting, draft, or ready for less than a day) and Inactive (everything else). It
-preserves agent-shell's recent-buffer order within each group and moves the
-current buffer to the bottom of its group. When every buffer uses the same agent, it removes
-the repeated agent prefix from the candidate names. Preview, selection, and
-Embark actions still resolve each candidate to its full buffer name. It also
-adds:
+![Annotated screenshot of Agent Shell Consult with dummy sessions](docs/agent-shell-consult.png)
 
-- project, status, idle time, and session-title columns;
-- matching by project, buffer name, or session title;
-- narrowing by current project or shell state;
-- live preview while moving between candidates;
-- agent-shell's icons and buffer-name faces;
-- a dedicated Embark action map.
+
+- See each session's project, state, idle time, and title.
+- Search by buffer name, project, or session title.
+- Filter by current project or state, including drafts.
+- Preview sessions as you move through the list.
+- Find active sessions together, with older sessions grouped below.
+- Use Embark to interrupt, restart, change models, and more.
+
+Ready sessions with unsent text show **Draft** in red and stay Active.
+Use the `d` filter to find them.
+
+With [agent-shell-attention](https://github.com/ultronozm/agent-shell-attention.el),
+a **●** beside the state marks unread output.
+Previewing or opening that session clears the indicator; pending permissions
+remain.
 
 ## Installation
 
@@ -33,25 +36,18 @@ adds:
 Without Consult, `agent-shell-consult` delegates selection to agent-shell's
 native reader.
 
-Forgot to send a message? Ready sessions with unsent text show `Draft` in red
-and stay in the Active group. Use the `d` filter to find your drafts.
-
-When `agent-shell-attention` is loaded and tracking output, unread output gets
-a `●` beside the status. Previewing or selecting the buffer clears that unread
-attention, while pending permissions remain.
-
 ## Embark actions
 
-| Key | Action |
-|---|---|
-| `RET` | Switch to the agent shell |
-| `k` | Kill the agent-shell buffer |
-| `K` | Stop the agent process |
-| `r` | Restart the agent shell |
-| `R` | Reload the current session |
-| `m` | Set the session mode |
-| `l` | Set the model |
-| `i` | Interrupt the current request |
-| `t` | Open the session transcript |
-| `L` | Toggle ACP logging |
-| `T` | View ACP traffic |
+| Key   | Action                        |
+|-------|-------------------------------|
+| `RET` | Switch to the agent shell     |
+| `k`   | Kill the agent-shell buffer   |
+| `K`   | Stop the agent process        |
+| `r`   | Restart the agent shell       |
+| `R`   | Reload the current session    |
+| `m`   | Set the session mode          |
+| `l`   | Set the model                 |
+| `i`   | Interrupt the current request |
+| `t`   | Open the session transcript   |
+| `L`   | Toggle ACP logging            |
+| `T`   | View ACP traffic              |
