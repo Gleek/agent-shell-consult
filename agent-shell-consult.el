@@ -21,6 +21,7 @@
 (declare-function agent-shell--buffer-name-prefix "agent-shell")
 (declare-function agent-shell--config-icon "agent-shell")
 (declare-function agent-shell--read-shell-buffer "agent-shell")
+(declare-function agent-shell--input "agent-shell")
 (defvar embark-keymap-alist)
 (defvar consult--narrow)
 (declare-function agent-shell-attention--pending-live-entries "agent-shell-attention")
@@ -98,6 +99,7 @@ Permission requests are not unread output.  Attention is optional."
                            ((not (map-nested-elt agent-shell--state
                                                  '(:session :id)))
                             'no-session)
+                           ((agent-shell--input) 'draft)
                            (t 'ready))
                    status)))
       (list
@@ -107,6 +109,7 @@ Permission requests are not unread output.  Attention is optional."
          ('killed (propertize "Killed" 'face 'agent-shell-error))
          ('starting (propertize "Starting..." 'face 'shadow))
          ('no-session (propertize "No Session" 'face 'shadow))
+         ('draft (propertize "Draft" 'face 'agent-shell-error))
          ('ready (propertize "Ready" 'face 'agent-shell-success))
          (_ (propertize "Unknown" 'face 'shadow)))
        (when-let* (((eq status 'ready))
@@ -153,7 +156,7 @@ Permission requests are not unread output.  Attention is optional."
                                     "\n"))))
                       (project (agent-shell-consult--project buffer))
                       (last-activity (map-elt agent-shell--state :last-activity-time))
-                      (group (if (or (memq status-kind '(busy blocked starting))
+                      (group (if (or (memq status-kind '(busy blocked starting draft))
                                      (and (eq status-kind 'ready)
                                           last-activity
                                           (< (float-time (time-subtract now last-activity))
@@ -192,7 +195,7 @@ Permission requests are not unread output.  Attention is optional."
 
 (defun agent-shell-consult--narrow (project)
   "Return Consult narrowing configuration for the current PROJECT."
-  (let ((statuses '((?w . busy) (?b . blocked) (?r . ready)
+  (let ((statuses '((?w . busy) (?b . blocked) (?r . ready) (?d . draft)
                     (?s . starting) (?n . no-session) (?k . killed))))
     (list :predicate
           (lambda (candidate)
@@ -205,6 +208,7 @@ Permission requests are not unread output.  Attention is optional."
                   (?w . "Working")
                   (?b . "Waiting")
                   (?r . "Ready")
+                  (?d . "Draft")
                   (?s . "Starting")
                   (?n . "No session")
                   (?k . "Killed")))))

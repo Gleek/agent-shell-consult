@@ -5,7 +5,7 @@ native switcher as its fallback and adds a richer interface when Consult is
 installed.
 
 The Consult view groups sessions into Active (working, waiting for permission,
-starting, or ready for less than a day) and Inactive (everything else). It
+starting, draft, or ready for less than a day) and Inactive (everything else). It
 preserves agent-shell's recent-buffer order within each group and moves the
 current buffer to the bottom of its group. When every buffer uses the same agent, it removes
 the repeated agent prefix from the candidate names. Preview, selection, and
@@ -33,10 +33,12 @@ adds:
 Without Consult, `agent-shell-consult` delegates selection to agent-shell's
 native reader.
 
+Forgot to send a message? Ready sessions with unsent text show `Draft` in red
+and stay in the Active group. Use the `d` filter to find your drafts.
+
 When `agent-shell-attention` is loaded and tracking output, unread output gets
 a `●` beside the status. Previewing or selecting the buffer clears that unread
-attention, while pending permissions remain. This optional integration uses
-attention's private APIs; no additional tracking is installed by this package.
+attention, while pending permissions remain.
 
 ## Embark actions
 
