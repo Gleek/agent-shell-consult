@@ -1,11 +1,12 @@
 # Agent Shell Consult
 
+
+
+<img width="1757" height="740" alt="agent-shell-consult" src="https://github.com/user-attachments/assets/7cf90964-68cd-4c0a-acd0-ee87a25a2c11" />
+
 A Consult interface for managing agent-shell buffers.
 Acts like an enhanced version `agent-shell-switch-buffer`, with session details,
 live previews, and Embark actions.
-
-![Annotated screenshot of Agent Shell Consult with dummy sessions](docs/agent-shell-consult.png)
-
 
 - See each session's project, state, idle time, and title.
 - Search by buffer name, project, or session title.
