@@ -4,6 +4,10 @@ A Consult interface for managing agent-shell buffers.
 Acts like an enhanced version `agent-shell-switch-buffer`, with session details,
 live previews, and Embark actions.
 
+
+<img width="3337" height="977" alt="agent-shell-consult" src="https://github.com/user-attachments/assets/17ebbcda-26ee-4ab7-abb7-64018c8a1683" />
+
+
 - See each session's project, state, idle time, and title.
 - Search by buffer name, project, or session title.
 - Filter by current project or state, including drafts.
