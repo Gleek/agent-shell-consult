@@ -5,7 +5,8 @@ Acts like an enhanced version `agent-shell-switch-buffer`, with session details,
 live previews, and Embark actions.
 
 
-<img width="3337" height="977" alt="agent-shell-consult" src="https://github.com/user-attachments/assets/17ebbcda-26ee-4ab7-abb7-64018c8a1683" />
+<img width="3600" height="1260" alt="agent-shell-consult-annotated-v3" src="https://github.com/user-attachments/assets/44d66858-cc13-4e91-875b-a93cabc372a4" />
+
 
 
 - See each session's project, state, idle time, and title.
