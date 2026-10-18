@@ -153,9 +153,15 @@
                    (unwind-protect
                        (progn
                          (funcall async 'setup)
-                         (dolist (callback callbacks)
-                           (funcall (cdr callback)
-                                    (list (agent-shell-consult-test--session "same"))))
+                         (let* ((candidate (car (funcall async nil)))
+                                (before (funcall (plist-get options :annotate) candidate)))
+                           (dolist (callback callbacks)
+                             (let ((session (copy-tree (agent-shell-consult-test--session "same"))))
+                               (setf (alist-get 'title session) (make-string 100 ?X)
+                                     (alist-get 'cwd session) (concat "/tmp/" (make-string 100 ?Y)))
+                               (funcall (cdr callback) (list session))))
+                           (should (equal before
+                                          (funcall (plist-get options :annotate) candidate))))
                          (let ((candidates (funcall async nil)))
                            (should (equal (mapcar (lambda (c)
                                                     (get-text-property 0 'agent-shell-consult-group c))
@@ -447,6 +453,20 @@
                   #'agent-shell-consult-action-fork))
       (should (eq (lookup-key agent-shell-consult-embark-map (kbd "f"))
                   #'agent-shell-consult-action-fork)))))
+
+(ert-deftest agent-shell-consult-test-affix-truncates-without-losing-target ()
+  "Bound labels and projects to their columns while keeping the full target."
+  (let* ((name (make-string 100 ?X))
+         (candidate (propertize "full searchable target" 'display
+                                (propertize name 'face 'agent-shell-session-title)))
+         (entry (cons candidate (list :name name :project (make-string 100 ?Y)
+                                     :status "" :age "2h" :title "")))
+         (affix (agent-shell-consult--affix candidate (list entry) '(24 12 13 8)))
+         (display (get-text-property 0 'display (car affix))))
+    (should (equal candidate (car affix)))
+    (should (= 24 (string-width display)))
+    (should (string-suffix-p "..." display))
+    (should (= (+ 2 12 2 13 2 8) (string-width (nth 2 affix))))))
 
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here

@@ -462,9 +462,12 @@ Permission requests are not unread output.  Attention is optional."
 (defun agent-shell-consult--affix (candidate entries widths)
   "Add metadata to CANDIDATE using ENTRIES and column WIDTHS."
   (let* ((entry (agent-shell-consult--entry candidate entries))
-         (padding (+ 2 (- (nth 0 widths)
-                          (string-width (plist-get entry :name)))))
-         (project (plist-get entry :project))
+         (name (truncate-string-to-width
+                (or (get-text-property 0 'display candidate) (plist-get entry :name))
+                (nth 0 widths) nil nil "..."))
+         (padding (+ 2 (- (nth 0 widths) (string-width name))))
+         (project (truncate-string-to-width (plist-get entry :project)
+                                            (nth 1 widths) nil nil "..."))
          (status (concat (plist-get entry :status)
                          (when (and (plist-get entry :buffer)
                                     (agent-shell-consult--unread-p
@@ -472,7 +475,7 @@ Permission requests are not unread output.  Attention is optional."
                            (propertize " ●" 'face 'agent-shell-success))))
          (age (or (plist-get entry :age) ""))
          (title (plist-get entry :title)))
-    (list candidate
+    (list (propertize candidate 'display name)
           (if-let* ((icon (plist-get entry :icon))) (concat icon " ") "")
           (concat (make-string padding ?\s)
                   (string-pad (propertize project 'face 'shadow) (nth 1 widths))
@@ -501,15 +504,12 @@ stored buffer's full name before delegating to Consult."
                      (agent-shell-consult--unread-p buffer))
             (agent-shell-attention--clear-buffer buffer)))))))
 
-(defun agent-shell-consult--widths (entries)
-  "Return annotation column widths for ENTRIES."
-  (mapcar (lambda (key)
-            (apply #'max 0
-                   (mapcar (lambda (entry)
-                             (+ (if (eq key :status) 2 0)
-                                (string-width (or (plist-get (cdr entry) key) ""))))
-                           entries)))
-          '(:name :project :status :age)))
+(defun agent-shell-consult--widths ()
+  "Return stable column widths based on the minibuffer window."
+  (let ((width (window-body-width (minibuffer-window))))
+    (list (min 50 (max 24 (/ width 3)))
+          (min 24 (max 12 (/ width 6)))
+          13 8)))
 
 (defun agent-shell-consult--read (buffers)
   "Read BUFFERS and configured saved sessions with Consult."
@@ -521,7 +521,7 @@ stored buffer's full name before delegating to Consult."
              (and (equal (get-text-property 0 'agent-shell-consult-group (car a)) "Active")
                   (equal (get-text-property 0 'agent-shell-consult-group (car b)) "Inactive")))))
          (entries buffer-entries)
-         (widths (agent-shell-consult--widths entries))
+         (widths (agent-shell-consult--widths))
          (sources nil)
          (collection
           (lambda (sink)
@@ -546,8 +546,7 @@ stored buffer's full name before delegating to Consult."
                                  (setf (alist-get config sources nil nil #'equal) sessions)
                                  (setq agent-shell-consult--saved-entries
                                        (agent-shell-consult--session-entries sources)
-                                       entries (append buffer-entries agent-shell-consult--saved-entries)
-                                       widths (agent-shell-consult--widths entries))
+                                       entries (append buffer-entries agent-shell-consult--saved-entries))
                                  (funcall sink 'flush)
                                  (when entries (funcall sink (mapcar #'car entries)))
                                  (funcall sink 'refresh)))
