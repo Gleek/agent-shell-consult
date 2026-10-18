@@ -84,31 +84,6 @@ Saved session browsing requires Consult; the native reader still lists buffers.
 
 ## Embark actions
 
-Saved sessions offer:
-
-| Key   | Action                               |
-|-------|--------------------------------------|
-| `RET` | Resume the session                   |
-| `f`   | Fork into a separate session         |
-| `w`   | Copy the session ID                  |
-| `d`   | Open the working directory in Dired   |
-| `c`   | Copy a native CLI resume command     |
-| `t`   | View an existing Agent Shell transcript |
-
-Forking copies the conversation into a new session while preserving the
-original. Saved sessions can be forked when their agent advertises support;
-otherwise the action reports that forking is unavailable. Refresh session
-lists to recheck capabilities after updating an adapter.
-
-Resume commands include changing to the original directory. Claude and Codex
-are supported by default; customize `agent-shell-consult-resume-commands` for
-other agents. Commands are copied, never executed.
-
-Transcript viewing looks in the session's Agent Shell transcript directory,
-using `agent-shell-dot-subdir-function`, and matches its session ID. It opens
-an existing Markdown transcript read-only without starting an agent. Sessions
-created outside Agent Shell may not have one.
-
 Existing buffers offer:
 
 | Key   | Action                        |
@@ -125,3 +100,15 @@ Existing buffers offer:
 | `t`   | Open the session transcript   |
 | `L`   | Toggle ACP logging            |
 | `T`   | View ACP traffic              |
+
+Saved sessions offer:
+
+| Key   | Action                               |
+|-------|--------------------------------------|
+| `RET` | Resume the session                   |
+| `f`   | Fork into a separate session         |
+| `w`   | Copy the session ID                  |
+| `d`   | Open the working directory in Dired   |
+| `c`   | Copy a native CLI resume command     |
+| `t`   | View an existing Agent Shell transcript |
+
