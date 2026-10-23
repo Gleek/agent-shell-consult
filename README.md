@@ -41,7 +41,7 @@ native reader.
 
 ## Saved sessions
 
-Choose which agents to query using their existing Agent Shell config makers:
+Enable saved sessions for your agents:
 
 ```elisp
 (setq agent-shell-consult-session-agents
@@ -49,38 +49,8 @@ Choose which agents to query using their existing Agent Shell config makers:
         agent-shell-openai-make-codex-config))
 ```
 
-The default is nil, which keeps the picker limited to existing buffers.
-Config alists from `agent-shell-make-agent-config` are also accepted.
-Requires Agent Shell 0.83.4 or newer and acp.el 0.18.1 or newer, which
-supports listing sessions across working directories.
-
-Session lists stay cached for the lifetime of Emacs and appear immediately
-when opening the picker. Lists older than 60 seconds refresh asynchronously,
-replacing that agent's cached rows as results arrive. Failed refreshes keep
-the previous results available. Set `agent-shell-consult-session-cache-ttl`
-to change the refresh interval, or zero to refresh on every opening. Use
-`M-x agent-shell-consult-refresh-sessions` or a prefix argument (`C-u`) with
-`agent-shell-consult` to fetch fresh lists.
-
-Existing buffers appear first, followed by **Saved sessions**, sorted by last
-update across all queried agents and directories. Saved rows show the session
-title, project, and age with the same time format and styling as buffer rows.
-Sessions without titles show "Untitled session". Sessions already open are
-filtered by agent and session ID each time, including when using cached lists.
-Search by agent, directory, title, or session ID; use the `h`
-narrowing key for saved sessions or `p` for the current project.
-
-Press `RET` to resume a saved session in a new buffer using its original agent
-config and directory. Previewing a saved session does not load it. Other Embark
-actions apply to existing buffers. Saved sessions have their own Embark map;
-process and buffer actions are only offered for buffers.
-
-An unavailable agent, unsupported capability, or listing error leaves other
-agents' results usable and reports the reason in `*Messages*`. Each query has a
-30-second timeout, configurable with `agent-shell-consult-session-timeout`.
-Closing the picker stops pending queries and releases their clients. Pagination
-uses `agent-shell-session-list-page-limit`; leave it nil to fetch all pages.
-Saved session browsing requires Consult; the native reader still lists buffers.
+Requires Consult, Agent Shell 0.83.4+, and acp.el 0.18.1+.
+The default is nil (existing buffers only). Config alists are also accepted.
 
 ## Embark actions
 
@@ -94,6 +64,7 @@ Existing buffers offer:
 | `K`   | Stop the agent process        |
 | `r`   | Restart the agent shell       |
 | `R`   | Reload the current session    |
+| `n`   | Rename the buffer             |
 | `m`   | Set the session mode          |
 | `l`   | Set the model                 |
 | `i`   | Interrupt the current request |
@@ -111,4 +82,3 @@ Saved sessions offer:
 | `d`   | Open the working directory in Dired   |
 | `c`   | Copy a native CLI resume command     |
 | `t`   | View an existing Agent Shell transcript |
-

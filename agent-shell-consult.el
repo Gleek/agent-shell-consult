@@ -685,6 +685,7 @@ stored buffer's full name before delegating to Consult."
 
 (agent-shell-consult--action agent-shell-consult-action-restart agent-shell-restart)
 (agent-shell-consult--action agent-shell-consult-action-reload agent-shell-reload)
+(agent-shell-consult--action agent-shell-consult-action-rename agent-shell-rename-buffer)
 (agent-shell-consult--action agent-shell-consult-action-set-mode agent-shell-set-session-mode)
 (agent-shell-consult--action agent-shell-consult-action-set-model agent-shell-set-session-model)
 (agent-shell-consult--action agent-shell-consult-action-interrupt agent-shell-interrupt)
@@ -702,6 +703,7 @@ stored buffer's full name before delegating to Consult."
                        ("i" . agent-shell-consult-action-interrupt)
                        ("l" . agent-shell-consult-action-set-model)
                        ("m" . agent-shell-consult-action-set-mode)
+                       ("n" . agent-shell-consult-action-rename)
                        ("R" . agent-shell-consult-action-reload)
                        ("r" . agent-shell-consult-action-restart)
                        ("K" . agent-shell-consult-action-kill-agent)
