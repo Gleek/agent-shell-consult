@@ -468,5 +468,30 @@
     (should (string-suffix-p "..." display))
     (should (= (+ 2 12 2 13 2 8) (string-width (nth 2 affix))))))
 
+(ert-deftest agent-shell-consult-test-new-shell-uses-target-context ()
+  "Start a fresh session using the target's agent and directory."
+  (let ((config (agent-shell-consult-test--config 'codex))
+        started displayed)
+    (with-temp-buffer
+      (setq-local default-directory "/tmp/"
+                  agent-shell--state `((:agent-config . ,config)))
+      (let* ((target (current-buffer))
+             (candidate (propertize "target" 'agent-shell-consult-buffer target)))
+        (with-temp-buffer
+          (setq-local default-directory "/")
+          (cl-letf (((symbol-function 'agent-shell--start)
+                     (lambda (&rest args) (setq started args) target))
+                    ((symbol-function 'switch-to-buffer)
+                     (lambda (buffer) (setq displayed buffer))))
+            (agent-shell-consult-action-new candidate)))
+        (should (buffer-live-p target))
+        (should (eq displayed target))
+        (should (equal started (list :config config :cwd "/tmp/"
+                                     :session-strategy 'new :new-session t)))))
+    (should (eq (lookup-key agent-shell-consult-embark-map (kbd "n"))
+                #'agent-shell-consult-action-new))
+    (should (eq (lookup-key agent-shell-consult-embark-map (kbd "r"))
+                #'agent-shell-consult-action-rename))))
+
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here

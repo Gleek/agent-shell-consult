@@ -62,9 +62,9 @@ Existing buffers offer:
 | `f`   | Fork into a separate session  |
 | `k`   | Kill the agent-shell buffer   |
 | `K`   | Stop the agent process        |
-| `r`   | Restart the agent shell       |
+| `r`   | Rename the buffer             |
 | `R`   | Reload the current session    |
-| `n`   | Rename the buffer             |
+| `n`   | New shell in the same project |
 | `m`   | Set the session mode          |
 | `l`   | Set the model                 |
 | `i`   | Interrupt the current request |

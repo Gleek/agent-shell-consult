@@ -600,6 +600,15 @@ stored buffer's full name before delegating to Consult."
   (interactive "sSaved session: ")
   (agent-shell-consult-action-switch candidate))
 
+(defun agent-shell-consult-action-new (candidate)
+  "Start a fresh shell with CANDIDATE's agent and working directory."
+  (interactive "sAgent shell: ")
+  (switch-to-buffer
+   (with-current-buffer (agent-shell-consult--buffer candidate)
+     (agent-shell--start :config (map-elt agent-shell--state :agent-config)
+                         :cwd default-directory
+                         :session-strategy 'new :new-session t))))
+
 (defun agent-shell-consult-action-fork (candidate)
   "Fork CANDIDATE's conversation into a separate Agent Shell buffer."
   (interactive "sAgent session: ")
@@ -683,7 +692,6 @@ stored buffer's full name before delegating to Consult."
      (interactive "sAgent shell: ")
      (agent-shell-consult--call candidate #',function)))
 
-(agent-shell-consult--action agent-shell-consult-action-restart agent-shell-restart)
 (agent-shell-consult--action agent-shell-consult-action-reload agent-shell-reload)
 (agent-shell-consult--action agent-shell-consult-action-rename agent-shell-rename-buffer)
 (agent-shell-consult--action agent-shell-consult-action-set-mode agent-shell-set-session-mode)
@@ -703,9 +711,9 @@ stored buffer's full name before delegating to Consult."
                        ("i" . agent-shell-consult-action-interrupt)
                        ("l" . agent-shell-consult-action-set-model)
                        ("m" . agent-shell-consult-action-set-mode)
-                       ("n" . agent-shell-consult-action-rename)
+                       ("n" . agent-shell-consult-action-new)
                        ("R" . agent-shell-consult-action-reload)
-                       ("r" . agent-shell-consult-action-restart)
+                       ("r" . agent-shell-consult-action-rename)
                        ("K" . agent-shell-consult-action-kill-agent)
                        ("k" . agent-shell-consult-action-kill)))
       (define-key map (kbd (car binding)) (cdr binding)))
