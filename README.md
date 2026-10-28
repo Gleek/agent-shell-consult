@@ -15,7 +15,7 @@ live previews, and Embark actions.
 - Preview sessions as you move through the list.
 - Browse Active, Inactive, and Saved sessions in separate groups.
 - Resume saved sessions across configured agents and projects.
-- Use Embark to interrupt, restart, change models, and more.
+- Use Embark to interrupt, fork, change models, and more.
 
 Ready sessions with unsent text show **Draft** in red and stay Active.
 Use the `d` filter to find them.
@@ -26,6 +26,9 @@ Selecting a session clears the indicator; previewing leaves it unread.
 Pending permissions remain.
 
 ## Installation
+
+Requires Emacs 29.1+, Agent Shell 0.83.4+, and acp.el 0.18.1+.
+Install Consult for the picker and Embark for its actions.
 
 ```elisp
 (use-package agent-shell-consult
@@ -82,3 +85,24 @@ Saved sessions offer:
 | `d`   | Open the working directory in Dired   |
 | `c`   | Copy a native CLI resume command     |
 | `t`   | View an existing Agent Shell transcript |
+
+## Development
+
+Install dependencies in a separate temporary package directory and run the tests:
+
+```sh
+emacs -Q --batch -L . -l tests/setup.el \
+  -l tests/agent-shell-consult-test.el -f ert-run-tests-batch-and-exit
+```
+
+With a checkout of [melpazoid](https://github.com/riscy/melpazoid) and Docker:
+
+```sh
+LOCAL_REPO="$PWD" \
+  RECIPE='(agent-shell-consult :fetcher github :repo "Gleek/agent-shell-consult")' \
+  WARN_IS_ERROR=true make -C /path/to/melpazoid
+```
+
+## License
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).

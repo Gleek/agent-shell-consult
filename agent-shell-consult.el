@@ -1,10 +1,29 @@
 ;;; agent-shell-consult.el --- Consult UI for agent-shell -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2026 Umar
+;; Copyright (C) 2026 Umar Ahmad
+
+;; Author: Umar Ahmad <Gleek@users.noreply.github.com>
+;; Assisted-by: Codex:GPT-6
+;; Maintainer: Umar Ahmad <Gleek@users.noreply.github.com>
 ;; Version: 0.3.0
-;; Package-Requires: ((emacs "28.1") (agent-shell "0.83.4") (acp "0.18.1"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.83.4") (acp "0.18.1"))
 ;; Keywords: convenience, processes, tools
 ;; URL: https://github.com/Gleek/agent-shell-consult
+
+;; This file is not part of GNU Emacs.
+
+;; This program is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; This program is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
+;; You should have received a copy of the GNU General Public License
+;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 ;;
@@ -14,23 +33,23 @@
 ;;; Code:
 
 (require 'agent-shell)
+(require 'cl-lib)
+(require 'map)
+(require 'seq)
 (require 'subr-x)
 
-(declare-function consult--buffer-state "consult")
-(declare-function consult--read "consult")
-(declare-function agent-shell--buffer-name-prefix "agent-shell")
-(declare-function agent-shell--config-icon "agent-shell")
-(declare-function agent-shell--read-shell-buffer "agent-shell")
-(declare-function agent-shell--input "agent-shell")
+(declare-function consult--buffer-state "ext:consult" () t)
+(declare-function consult--read "ext:consult")
+(declare-function agent-shell-rename-buffer "agent-shell")
 (defvar embark-keymap-alist)
 (defvar embark-transformer-alist)
 (defvar embark-default-action-overrides)
 (defvar consult--narrow)
-(declare-function agent-shell-attention--pending-live-entries "agent-shell-attention")
-(declare-function agent-shell-attention--pending-entry-permission-p "agent-shell-attention")
-(declare-function agent-shell-attention--permission-pending-p "agent-shell-attention")
-(declare-function agent-shell-attention--clear-buffer "agent-shell-attention")
-(declare-function agent-shell-attention--maybe-clear-current "agent-shell-attention")
+(declare-function agent-shell-attention--pending-live-entries "ext:agent-shell-attention")
+(declare-function agent-shell-attention--pending-entry-permission-p "ext:agent-shell-attention")
+(declare-function agent-shell-attention--permission-pending-p "ext:agent-shell-attention")
+(declare-function agent-shell-attention--clear-buffer "ext:agent-shell-attention")
+(declare-function agent-shell-attention--maybe-clear-current "ext:agent-shell-attention")
 
 (defgroup agent-shell-consult nil
   "Consult interface for Agent Shell."
@@ -205,7 +224,11 @@ Each source is a cons of an agent config and its session list."
                      (name (truncate-string-to-width
                             (if (string-empty-p title) "Untitled session" title)
                             50 nil nil "..."))
-                     (updated (ignore-errors (date-to-time (map-elt session 'updatedAt))))
+                     ;; Agents may omit updatedAt or return an invalid date.
+                     (updated (when-let* ((timestamp (map-elt session 'updatedAt)))
+                                (condition-case nil
+                                    (date-to-time timestamp)
+                                  (error nil))))
                      (entry (list :config config :session session :name name
                                   :supports-fork
                                   (and (assq 'fork
@@ -282,7 +305,7 @@ Permission requests are not unread output.  Attention is optional."
            (not (agent-shell-attention--permission-pending-p buffer))))))
 
 (defun agent-shell-consult--buffer (candidate)
-  "Return the live agent-shell buffer stored on CANDIDATE."
+  "Return the live Agent Shell buffer stored on CANDIDATE."
   (when (agent-shell-consult--saved-entry candidate)
     (user-error "Saved session has no buffer; use RET to resume it"))
   (let* ((buffer (get-text-property 0 'agent-shell-consult-buffer candidate))
@@ -360,7 +383,7 @@ Permission requests are not unread output.  Attention is optional."
        kind))))
 
 (defun agent-shell-consult--buffers ()
-  "Return agent-shell buffers with the current buffer last."
+  "Return Agent Shell buffers with the current buffer last."
   (let ((buffers (agent-shell-buffers)))
     (if (memq (current-buffer) buffers)
         (append (delq (current-buffer) (copy-sequence buffers))
@@ -583,7 +606,7 @@ stored buffer's full name before delegating to Consult."
     (agent-shell-consult--open (agent-shell-consult--entry selection entries))))
 
 (defun agent-shell-consult--call (candidate function)
-  "Call FUNCTION interactively in CANDIDATE's agent-shell buffer."
+  "Call FUNCTION interactively in CANDIDATE's Agent Shell buffer."
   (with-current-buffer (agent-shell-consult--buffer candidate)
     (call-interactively function)))
 
@@ -686,7 +709,7 @@ stored buffer's full name before delegating to Consult."
     (agent-shell-consult--call candidate #'comint-send-eof)))
 
 (defmacro agent-shell-consult--action (name function)
-  "Define Embark action NAME that calls FUNCTION in its candidate."
+  "Define Embark action NAME to call FUNCTION in its candidate."
   `(defun ,name (candidate)
      ,(format "Run `%s' for CANDIDATE." function)
      (interactive "sAgent shell: ")
@@ -737,15 +760,17 @@ stored buffer's full name before delegating to Consult."
             'agent-shell-consult-session type)
         candidate))
 
-(with-eval-after-load 'embark
-  (add-to-list 'embark-keymap-alist
-               '(agent-shell-consult-buffer . agent-shell-consult-embark-map))
-  (add-to-list 'embark-keymap-alist
-               '(agent-shell-consult-session . agent-shell-consult-session-embark-map))
-  (add-to-list 'embark-transformer-alist
-               '(agent-shell-consult-buffer . agent-shell-consult--embark-target))
-  (add-to-list 'embark-default-action-overrides
-               '(agent-shell-consult-session . agent-shell-consult-action-resume)))
+(defun agent-shell-consult--setup-embark ()
+  "Register picker actions when Embark is installed."
+  (when (require 'embark nil t)
+    (add-to-list 'embark-keymap-alist
+                 '(agent-shell-consult-buffer . agent-shell-consult-embark-map))
+    (add-to-list 'embark-keymap-alist
+                 '(agent-shell-consult-session . agent-shell-consult-session-embark-map))
+    (add-to-list 'embark-transformer-alist
+                 '(agent-shell-consult-buffer . agent-shell-consult--embark-target))
+    (add-to-list 'embark-default-action-overrides
+                 '(agent-shell-consult-session . agent-shell-consult-action-resume))))
 
 ;;;###autoload
 (defun agent-shell-consult-refresh-sessions ()
@@ -766,6 +791,7 @@ With prefix argument REFRESH, discard cached session lists first."
         (progn
           (unless (or buffers agent-shell-consult-session-agents)
             (user-error "No agent-shell buffers or configured session agents"))
+          (agent-shell-consult--setup-embark)
           (switch-to-buffer (agent-shell-consult--read buffers)))
       (unless buffers (user-error "No agent-shell buffers"))
       (switch-to-buffer

@@ -343,7 +343,7 @@
 
 (ert-deftest agent-shell-consult-test-embark-saved-session-map ()
   "Embark selects Resume for saved sessions, preserving live buffer actions."
-  (require 'embark)
+  (agent-shell-consult--setup-embark)
   (let* ((entry (list :session (agent-shell-consult-test--session "saved")))
          (saved (propertize "saved /tmp/" 'agent-shell-consult-session entry))
          (agent-shell-consult--saved-entries (list (cons saved entry))))
