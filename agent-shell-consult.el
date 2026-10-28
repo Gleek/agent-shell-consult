@@ -6,7 +6,7 @@
 ;; Assisted-by: Codex:GPT-6
 ;; Maintainer: Umar Ahmad <Gleek@users.noreply.github.com>
 ;; Version: 0.3.0
-;; Package-Requires: ((emacs "29.1") (agent-shell "0.83.4") (acp "0.18.1"))
+;; Package-Requires: ((emacs "29.1") (agent-shell "0.83.4") (acp "0.18.1") (consult "3.0"))
 ;; Keywords: convenience, processes, tools
 ;; URL: https://github.com/Gleek/agent-shell-consult
 
@@ -28,23 +28,21 @@
 ;;; Commentary:
 ;;
 ;; Add a metadata-rich Consult interface and Embark actions to agent-shell's
-;; native buffer switcher.  Without Consult, use agent-shell's native reader.
+;; native buffer switcher.
 
 ;;; Code:
 
 (require 'agent-shell)
 (require 'cl-lib)
+(require 'consult)
 (require 'map)
 (require 'seq)
 (require 'subr-x)
 
-(declare-function consult--buffer-state "ext:consult" () t)
-(declare-function consult--read "ext:consult")
 (declare-function agent-shell-rename-buffer "agent-shell")
 (defvar embark-keymap-alist)
 (defvar embark-transformer-alist)
 (defvar embark-default-action-overrides)
-(defvar consult--narrow)
 (declare-function agent-shell-attention--pending-live-entries "ext:agent-shell-attention")
 (declare-function agent-shell-attention--pending-entry-permission-p "ext:agent-shell-attention")
 (declare-function agent-shell-attention--permission-pending-p "ext:agent-shell-attention")
@@ -787,16 +785,10 @@ With prefix argument REFRESH, discard cached session lists first."
     (clrhash agent-shell-consult--session-cache)
     (clrhash agent-shell-consult--session-capabilities))
   (let ((buffers (agent-shell-consult--buffers)))
-    (if (require 'consult nil t)
-        (progn
-          (unless (or buffers agent-shell-consult-session-agents)
-            (user-error "No agent-shell buffers or configured session agents"))
-          (agent-shell-consult--setup-embark)
-          (switch-to-buffer (agent-shell-consult--read buffers)))
-      (unless buffers (user-error "No agent-shell buffers"))
-      (switch-to-buffer
-       (agent-shell--read-shell-buffer
-        :prompt "Switch to agent-shell buffer: " :buffers buffers)))))
+    (unless (or buffers agent-shell-consult-session-agents)
+      (user-error "No agent-shell buffers or configured session agents"))
+    (agent-shell-consult--setup-embark)
+    (switch-to-buffer (agent-shell-consult--read buffers))))
 
 (provide 'agent-shell-consult)
 

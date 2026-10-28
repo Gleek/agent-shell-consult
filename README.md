@@ -27,8 +27,8 @@ Pending permissions remain.
 
 ## Installation
 
-Requires Emacs 29.1+, Agent Shell 0.83.4+, and acp.el 0.18.1+.
-Install Consult for the picker and Embark for its actions.
+Requires Emacs 29.1+, Agent Shell 0.83.4+, acp.el 0.18.1+, and Consult 3.0+.
+Install Embark for its actions.
 
 ```elisp
 (use-package agent-shell-consult
@@ -38,9 +38,6 @@ Install Consult for the picker and Embark for its actions.
          (:map agent-shell-mode-map
                ("C-z b" . agent-shell-consult))))
 ```
-
-Without Consult, `agent-shell-consult` delegates selection to agent-shell's
-native reader.
 
 ## Saved sessions
 
@@ -52,7 +49,6 @@ Enable saved sessions for your agents:
         agent-shell-openai-make-codex-config))
 ```
 
-Requires Consult, Agent Shell 0.83.4+, and acp.el 0.18.1+.
 The default is nil (existing buffers only). Config alists are also accepted.
 
 ## Embark actions
