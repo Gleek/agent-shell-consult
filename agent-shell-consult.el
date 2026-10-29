@@ -43,6 +43,7 @@
 (defvar embark-keymap-alist)
 (defvar embark-transformer-alist)
 (defvar embark-default-action-overrides)
+(defvar embark-around-action-hooks)
 (declare-function agent-shell-attention--pending-live-entries "ext:agent-shell-attention")
 (declare-function agent-shell-attention--pending-entry-permission-p "ext:agent-shell-attention")
 (declare-function agent-shell-attention--permission-pending-p "ext:agent-shell-attention")
@@ -98,13 +99,21 @@ Used only for copying commands, never for executing them."
   :type '(alist :key-type symbol :value-type (repeat string))
   :group 'agent-shell-consult)
 
-(defvar agent-shell-consult--saved-entries nil
-  "Saved entries from the latest picker, for Embark's plain-text targets.")
+(defvar agent-shell-consult--lookup-entry #'ignore
+  "Function returning the current picker's entry for a candidate string.")
+
+(defun agent-shell-consult--target-entry (candidate)
+  "Return CANDIDATE's entry from its properties or the current picker."
+  (or (get-text-property 0 'agent-shell-consult-entry candidate)
+      (get-text-property 0 'agent-shell-consult-session candidate)
+      (when-let* ((buffer (get-text-property 0 'agent-shell-consult-buffer candidate)))
+        (list :buffer buffer))
+      (funcall agent-shell-consult--lookup-entry candidate)))
 
 (defun agent-shell-consult--saved-entry (candidate)
   "Return CANDIDATE's saved session data, including for Embark targets."
-  (or (get-text-property 0 'agent-shell-consult-session candidate)
-      (cdr (assoc-string candidate agent-shell-consult--saved-entries))))
+  (let ((entry (agent-shell-consult--target-entry candidate)))
+    (and (plist-get entry :session) entry)))
 
 (defun agent-shell-consult--fetch-sessions (config on-success on-failure)
   "Fetch saved sessions for CONFIG asynchronously.
@@ -130,11 +139,12 @@ Return a function that cancels discovery and releases its resources."
              (cleanup)
              (funcall on-success sessions)))
          (list-sessions ()
-           (condition-case err
-               (agent-shell--list-sessions
-                :state (list (cons :client client)) :buffer buffer
-                :on-success #'succeed :on-failure #'fail)
-             (error (fail (error-message-string err))))))
+           (unless finished
+             (condition-case err
+                 (agent-shell--list-sessions
+                  :state (list (cons :client client)) :buffer buffer
+                  :on-success #'succeed :on-failure #'fail)
+               (error (fail (error-message-string err)))))))
       (condition-case err
           (progn
             (with-current-buffer buffer
@@ -192,10 +202,18 @@ fresh sessions.  ON-FAILURE and the cancellation function are as in
   "Identify session ID belonging to CONFIG."
   (cons (map-elt config :identifier) id))
 
-(defun agent-shell-consult--session-entries (sources)
+(defun agent-shell-consult--candidate (text key ids)
+  "Append an invisible ID to TEXT for KEY, reusing its entry in IDS."
+  (concat text (consult--tofu-encode
+                (or (gethash key ids)
+                    (puthash key (hash-table-count ids) ids)))))
+
+(defun agent-shell-consult--session-entries (sources &optional ids)
   "Build saved session entries from SOURCES, excluding existing buffers.
-Each source is a cons of an agent config and its session list."
-  (let ((seen (make-hash-table :test #'equal)) entries)
+Each source is a cons of an agent config and its session list.
+Reuse the picker's IDS table when supplied."
+  (let ((ids (or ids (make-hash-table :test #'equal)))
+        (seen (make-hash-table :test #'equal)) entries)
     (dolist (buffer (agent-shell-buffers))
       (with-current-buffer buffer
         (puthash (agent-shell-consult--session-key
@@ -249,7 +267,8 @@ Each source is a cons of an agent config and its session list."
                        'agent-shell-consult-project project
                        'agent-shell-consult-group "Saved sessions")
                  candidate)
-                (push (cons candidate entry) entries)))))))
+                (push (cons (agent-shell-consult--candidate candidate key ids) entry)
+                      entries)))))))
     (sort entries (lambda (a b) (> (plist-get (cdr a) :updated)
                                   (plist-get (cdr b) :updated))))))
 
@@ -265,15 +284,16 @@ When FORK is non-nil, create a fork instead of resuming the session."
              (session (plist-get entry :session))
              (id (map-elt session 'sessionId))
              (existing
-              (seq-find
-               (lambda (buffer)
-                 (with-current-buffer buffer
-                   (equal (agent-shell-consult--session-key config id)
-                          (agent-shell-consult--session-key
-                           (map-elt agent-shell--state :agent-config)
-                           (map-nested-elt agent-shell--state '(:session :id))))))
-               (agent-shell-buffers))))
-        (or (and (not fork) existing)
+              (unless fork
+                (seq-find
+                 (lambda (buffer)
+                   (with-current-buffer buffer
+                     (equal (agent-shell-consult--session-key config id)
+                            (agent-shell-consult--session-key
+                             (map-elt agent-shell--state :agent-config)
+                             (map-nested-elt agent-shell--state '(:session :id))))))
+                 (agent-shell-buffers)))))
+        (or existing
             (let* ((cwd (file-name-as-directory (map-elt session 'cwd)))
                    (default-directory cwd))
               (unless (file-directory-p default-directory)
@@ -306,17 +326,7 @@ Permission requests are not unread output.  Attention is optional."
   "Return the live Agent Shell buffer stored on CANDIDATE."
   (when (agent-shell-consult--saved-entry candidate)
     (user-error "Saved session has no buffer; use RET to resume it"))
-  (let* ((buffer (get-text-property 0 'agent-shell-consult-buffer candidate))
-         (matches
-          (unless (buffer-live-p buffer)
-            (seq-keep
-             (lambda (entry)
-               (when (or (equal candidate (car entry))
-                         (equal candidate (plist-get (cdr entry) :name)))
-                 (plist-get (cdr entry) :buffer)))
-             (agent-shell-consult--entries (agent-shell-buffers))))))
-    (when (= (length matches) 1)
-      (setq buffer (car matches)))
+  (let ((buffer (plist-get (agent-shell-consult--target-entry candidate) :buffer)))
     (unless (buffer-live-p buffer)
       (user-error "Agent-shell buffer no longer exists"))
     buffer))
@@ -388,9 +398,10 @@ Permission requests are not unread output.  Attention is optional."
                 (list (current-buffer)))
       buffers)))
 
-(defun agent-shell-consult--entries (buffers)
-  "Build completion entries for BUFFERS."
-  (let* ((now (current-time))
+(defun agent-shell-consult--entries (buffers &optional ids)
+  "Build completion entries for BUFFERS, reusing the picker's IDS table."
+  (let* ((ids (or ids (make-hash-table :test #'equal)))
+         (now (current-time))
          (identifiers
           (mapcar (lambda (buffer)
                     (with-current-buffer buffer
@@ -429,21 +440,16 @@ Permission requests are not unread output.  Attention is optional."
                                            (concat " " title)))))
            ;; Keep PROJECT and TITLE in the candidate so completion styles can
            ;; match them, while displaying only NAME; both are annotations.
-           (put-text-property
-            0 (length candidate) 'display
-            (propertize name
-                        'face 'agent-shell-buffer-name
-                        'agent-shell-consult-buffer buffer)
+           (add-text-properties
+            0 (length candidate)
+            (list 'display (propertize name 'face 'agent-shell-buffer-name
+                                       'agent-shell-consult-buffer buffer)
+                  'agent-shell-consult-buffer buffer
+                  'agent-shell-consult-project project
+                  'agent-shell-consult-status status-kind
+                  'agent-shell-consult-group group)
             candidate)
-           (put-text-property 0 (length candidate)
-                              'agent-shell-consult-buffer buffer candidate)
-           (put-text-property 0 (length candidate)
-                              'agent-shell-consult-project project candidate)
-           (put-text-property 0 (length candidate)
-                              'agent-shell-consult-status status-kind candidate)
-           (put-text-property 0 (length candidate)
-                              'agent-shell-consult-group group candidate)
-           (cons candidate
+           (cons (agent-shell-consult--candidate candidate buffer ids)
                  (list :buffer buffer
                        :name name
                        :icon (when agent-shell-show-config-icons
@@ -532,62 +538,69 @@ stored buffer's full name before delegating to Consult."
           (min 24 (max 12 (/ width 6)))
           13 8)))
 
+(defun agent-shell-consult--collection (buffer-entries on-update ids)
+  "Return a Consult collection combining BUFFER-ENTRIES and saved sessions.
+Call ON-UPDATE with the combined entries before publishing fresh candidates.
+Assign stable candidate IDs using the picker's IDS table."
+  (lambda (sink)
+    (let (sources cleanups active)
+      (lambda (action)
+        (pcase action
+          ('setup
+           (setq active t)
+           (funcall sink 'setup)
+           (when buffer-entries (funcall sink (mapcar #'car buffer-entries)))
+           (dolist (designator agent-shell-consult-session-agents)
+             (condition-case err
+                 (let* ((config (if (functionp designator)
+                                    (funcall designator) designator))
+                        (label (map-elt config :identifier)))
+                   (push
+                    (agent-shell-consult--sessions
+                     config
+                     (lambda (sessions)
+                       (when active
+                         (setf (alist-get config sources nil nil #'equal) sessions)
+                         (let ((entries (append buffer-entries
+                                                (agent-shell-consult--session-entries sources ids))))
+                           (funcall on-update entries)
+                           (funcall sink 'flush)
+                           (when entries (funcall sink (mapcar #'car entries)))
+                           (funcall sink 'refresh))))
+                     (lambda (reason)
+                       (when active
+                         (message "Saved sessions (%s): %s" label reason))))
+                    cleanups))
+               (error (message "Saved sessions: %s" (error-message-string err))))))
+          ('destroy
+           (setq active nil)
+           (mapc #'funcall cleanups)
+           (funcall sink 'destroy))
+          (_ (funcall sink action)))))))
+
 (defun agent-shell-consult--read (buffers)
   "Read BUFFERS and configured saved sessions with Consult."
   (let* ((project (agent-shell-consult--project (current-buffer)))
+         (ids (make-hash-table :test #'equal))
          (buffer-entries
           (cl-stable-sort
-           (agent-shell-consult--entries buffers)
+           (agent-shell-consult--entries buffers ids)
            (lambda (a b)
              (and (equal (get-text-property 0 'agent-shell-consult-group (car a)) "Active")
                   (equal (get-text-property 0 'agent-shell-consult-group (car b)) "Inactive")))))
          (entries buffer-entries)
+         (agent-shell-consult--lookup-entry
+          (lambda (candidate) (agent-shell-consult--entry candidate entries)))
          (widths (agent-shell-consult--widths))
-         (sources nil)
-         (collection
-          (lambda (sink)
-            (let (cleanups active)
-              (lambda (action)
-                (pcase action
-                  ('setup
-                   (setq active t)
-                   (setq agent-shell-consult--saved-entries nil)
-                   (funcall sink 'setup)
-                   (when entries (funcall sink (mapcar #'car entries)))
-                   (dolist (designator agent-shell-consult-session-agents)
-                     (condition-case err
-                         (let* ((config (if (functionp designator)
-                                            (funcall designator) designator))
-                                (label (map-elt config :identifier)))
-                           (push
-                            (agent-shell-consult--sessions
-                             config
-                             (lambda (sessions)
-                               (when active
-                                 (setf (alist-get config sources nil nil #'equal) sessions)
-                                 (setq agent-shell-consult--saved-entries
-                                       (agent-shell-consult--session-entries sources)
-                                       entries (append buffer-entries agent-shell-consult--saved-entries))
-                                 (funcall sink 'flush)
-                                 (when entries (funcall sink (mapcar #'car entries)))
-                                 (funcall sink 'refresh)))
-                             (lambda (reason)
-                               (when active
-                                 (message "Saved sessions (%s): %s" label reason))))
-                            cleanups))
-                       (error (message "Saved sessions: %s" (error-message-string err))))))
-                  ('destroy
-                   (setq active nil)
-                   (mapc #'funcall cleanups)
-                   (funcall sink 'destroy))
-                  (_ (funcall sink action)))))))
          ;; Preview must not clear unread output until selection is confirmed.
          (buffer-list-update-hook
           (remq #'agent-shell-attention--maybe-clear-current
                 buffer-list-update-hook))
          (selection
           (consult--read (if agent-shell-consult-session-agents
-                             collection (mapcar #'car entries))
+                             (agent-shell-consult--collection
+                              buffer-entries (lambda (updated) (setq entries updated)) ids)
+                           (mapcar #'car entries))
                          :async-wrap #'identity
                          :prompt "Switch to agent shell: "
                          :require-match t
@@ -754,21 +767,38 @@ stored buffer's full name before delegating to Consult."
 
 (defun agent-shell-consult--embark-target (type candidate)
   "Distinguish saved sessions from buffer targets of TYPE for CANDIDATE."
-  (cons (if (agent-shell-consult--saved-entry candidate)
-            'agent-shell-consult-session type)
-        candidate))
+  (let ((entry (agent-shell-consult--target-entry candidate)))
+    (cons (if (plist-get entry :session) 'agent-shell-consult-session type)
+          (if entry (propertize candidate 'agent-shell-consult-entry entry) candidate))))
+
+(defun agent-shell-consult--with-target (&rest args)
+  "Preserve ARGS' target data while Embark invokes an action command.
+Embark strips target properties when injecting input into commands."
+  (let* ((target (plist-get args :target))
+         (agent-shell-consult--lookup-entry
+          (lambda (candidate)
+            (when (equal candidate target)
+              (get-text-property 0 'agent-shell-consult-entry target)))))
+    (apply (plist-get args :run) args)))
 
 (defun agent-shell-consult--setup-embark ()
   "Register picker actions when Embark is installed."
   (when (require 'embark nil t)
-    (add-to-list 'embark-keymap-alist
-                 '(agent-shell-consult-buffer . agent-shell-consult-embark-map))
-    (add-to-list 'embark-keymap-alist
-                 '(agent-shell-consult-session . agent-shell-consult-session-embark-map))
-    (add-to-list 'embark-transformer-alist
-                 '(agent-shell-consult-buffer . agent-shell-consult--embark-target))
-    (add-to-list 'embark-default-action-overrides
-                 '(agent-shell-consult-session . agent-shell-consult-action-resume))))
+    (cl-pushnew '(agent-shell-consult-buffer . agent-shell-consult-embark-map)
+                embark-keymap-alist :key #'car)
+    (cl-pushnew '(agent-shell-consult-session . agent-shell-consult-session-embark-map)
+                embark-keymap-alist :key #'car)
+    (cl-pushnew '(agent-shell-consult-buffer . agent-shell-consult--embark-target)
+                embark-transformer-alist :key #'car)
+    (cl-pushnew '(agent-shell-consult-session . agent-shell-consult-action-resume)
+                embark-default-action-overrides :key #'car)
+    (dolist (map (list agent-shell-consult-embark-map
+                       agent-shell-consult-session-embark-map))
+      (map-keymap
+       (lambda (_key action)
+         (cl-pushnew #'agent-shell-consult--with-target
+                     (alist-get action embark-around-action-hooks)))
+       map))))
 
 ;;;###autoload
 (defun agent-shell-consult-refresh-sessions ()

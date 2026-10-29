@@ -112,6 +112,27 @@
         (should-not delivered)
         (should-not (buffer-live-p context))))))
 
+(ert-deftest agent-shell-consult-test-cancel-ignores-late-authentication ()
+  "A late authentication response must not restart cancelled discovery."
+  (let (authenticate (requests 0))
+    (cl-letf (((symbol-function 'acp-send-request)
+               (lambda (&rest args)
+                 (if (= (cl-incf requests) 1)
+                     (funcall (plist-get args :on-success)
+                              '((agentCapabilities . ((loadSession . t)
+                                                      (sessionCapabilities . ((list)))))))
+                   (setq authenticate (plist-get args :on-success)))))
+              ((symbol-function 'acp-shutdown) #'ignore)
+              ((symbol-function 'agent-shell--list-sessions)
+               (lambda (&rest _) (ert-fail "Queried after cancellation"))))
+      (let* ((config `((:client-maker . ,(lambda (_) '((:test . t))))
+                       (:needs-authentication . t)
+                       (:authenticate-request-maker . ,(lambda () 'authenticate))))
+             (cancel (agent-shell-consult--fetch-sessions config #'ignore #'ignore)))
+        (should (= requests 2))
+        (funcall cancel)
+        (funcall authenticate nil)))))
+
 (ert-deftest agent-shell-consult-test-preview-does-not-restore ()
   "Moving over a saved session never starts an agent session."
   (let* ((candidate "saved")
@@ -136,7 +157,7 @@
          callbacks cleaned chosen)
     (cl-letf (((symbol-function 'agent-shell-buffers) (lambda () nil))
               ((symbol-function 'agent-shell-consult--entries)
-               (lambda (_)
+               (lambda (&rest _)
                  (mapcar (lambda (group)
                            (cons (propertize group 'agent-shell-consult-group group)
                                  (list :name group :project "tmp" :status "Ready" :title "")))
@@ -179,7 +200,8 @@
   "Resolve saved sessions when Embark strips candidate text properties."
   (let* ((entry (list :session (agent-shell-consult-test--session "saved")))
          (candidate (propertize "saved /tmp/" 'agent-shell-consult-session entry))
-         (agent-shell-consult--saved-entries (list (cons candidate entry)))
+         (agent-shell-consult--lookup-entry
+          (lambda (text) (when (equal text candidate) entry)))
          opened)
     (cl-letf (((symbol-function 'agent-shell-consult--open)
                (lambda (data) (setq opened data) (current-buffer))))
@@ -188,6 +210,62 @@
       (should (eq entry opened))
       (should-error (agent-shell-consult--buffer (substring-no-properties candidate))
                     :type 'user-error))))
+
+(ert-deftest agent-shell-consult-test-nested-picker-and-deferred-action ()
+  "Nested pickers and deferred Embark actions retain their owning entries."
+  (agent-shell-consult--setup-embark)
+  (let* ((agent-shell-show-config-icons nil)
+         (outer (append (agent-shell-consult-test--config 'codex) '((:test . outer))))
+         (inner (append (agent-shell-consult-test--config 'codex) '((:test . inner))))
+         (agent-shell-consult-session-agents (list outer))
+         (session (agent-shell-consult-test--session "same"))
+         outer-success target opened nested)
+    (cl-letf (((symbol-function 'agent-shell-buffers) (lambda () nil))
+              ((symbol-function 'agent-shell-consult--sessions)
+               (lambda (config success _failure)
+                 (when (eq config outer) (setq outer-success success))
+                 (funcall success (list session))
+                 #'ignore))
+              ((symbol-function 'agent-shell-consult--open)
+               (lambda (entry) (setq opened entry) (current-buffer)))
+              ((symbol-function 'consult--read)
+               (lambda (table &rest _)
+                 (let ((async (funcall table (consult--async-sink))))
+                   (unwind-protect
+                       (progn
+                         (funcall async 'setup)
+                         (let ((candidate (substring-no-properties
+                                           (car (funcall async nil)))))
+                           (if nested
+                               (progn
+                                 ;; An outer reply arrives while the inner picker is active.
+                                 (funcall outer-success (list session))
+                                 (should (eq inner (plist-get
+                                                    (agent-shell-consult--saved-entry candidate)
+                                                    :config))))
+                             (setq nested t)
+                             (let ((agent-shell-consult-session-agents (list inner)))
+                               (agent-shell-consult--read nil))
+                             (setq nested nil)
+                             (should (eq outer (plist-get
+                                                (agent-shell-consult--saved-entry candidate)
+                                                :config)))
+                             (setq target (cdr (agent-shell-consult--embark-target
+                                                'agent-shell-consult-buffer candidate))))
+                           candidate))
+                     (funcall async 'destroy))))))
+      (agent-shell-consult--read nil)
+      (should (eq outer (plist-get opened :config)))
+      ;; The picker bindings are gone; Embark runs the action after exit.
+      (should-not (agent-shell-consult--saved-entry (substring-no-properties target)))
+      (setq opened nil)
+      (cl-letf (((symbol-function 'command-execute)
+                 (lambda (action &rest _)
+                   (funcall action (substring-no-properties target)))))
+        (save-window-excursion
+          (embark--run-around-action-hooks
+           #'agent-shell-consult-action-resume (list :target target) t)))
+      (should (eq outer (plist-get opened :config))))))
 
 (ert-deftest agent-shell-consult-test-session-cache-lifetime ()
   "Reuse fresh results and cache empty lists, refreshing according to TTL."
@@ -346,7 +424,8 @@
   (agent-shell-consult--setup-embark)
   (let* ((entry (list :session (agent-shell-consult-test--session "saved")))
          (saved (propertize "saved /tmp/" 'agent-shell-consult-session entry))
-         (agent-shell-consult--saved-entries (list (cons saved entry))))
+         (agent-shell-consult--lookup-entry
+          (lambda (text) (when (equal text saved) entry))))
     (dolist (candidate (list saved (substring-no-properties saved) "live buffer"))
       (let* ((embark-target-finders
               (list (lambda () (cons 'agent-shell-consult-buffer candidate))))
@@ -370,12 +449,29 @@
           (dolist (key '("k" "K" "r" "R" "i" "m" "l" "L" "T"))
             (should-not (lookup-key map (kbd key)))))))))
 
+(ert-deftest agent-shell-consult-test-embark-preserves-customizations ()
+  "Opening the picker repeatedly must preserve user Embark overrides."
+  (require 'embark)
+  (let ((embark-keymap-alist '((agent-shell-consult-buffer . custom-live-map)
+                              (agent-shell-consult-session . custom-saved-map)))
+        (embark-transformer-alist '((agent-shell-consult-buffer . ignore)))
+        (embark-default-action-overrides '((agent-shell-consult-session . ignore)))
+        (embark-around-action-hooks nil))
+    (dotimes (_ 2) (agent-shell-consult--setup-embark))
+    (should (eq 'custom-live-map (alist-get 'agent-shell-consult-buffer embark-keymap-alist)))
+    (should (eq 'custom-saved-map (alist-get 'agent-shell-consult-session embark-keymap-alist)))
+    (should (eq #'ignore (alist-get 'agent-shell-consult-buffer embark-transformer-alist)))
+    (should (eq #'ignore (alist-get 'agent-shell-consult-session embark-default-action-overrides)))
+    (should (equal '(agent-shell-consult--with-target)
+                   (alist-get 'agent-shell-consult-action-resume embark-around-action-hooks)))))
+
 (ert-deftest agent-shell-consult-test-saved-session-utilities ()
   "Copy identifiers and native commands, or visit Dired, without resuming."
   (dolist (agent '(codex claude-code other))
     (let* ((entry (list :config (agent-shell-consult-test--config agent)
                         :session (agent-shell-consult-test--session "saved")))
-           (agent-shell-consult--saved-entries (list (cons "plain candidate" entry)))
+           (agent-shell-consult--lookup-entry
+            (lambda (text) (when (equal text "plain candidate") entry)))
            copied visited)
       (cl-letf (((symbol-function 'kill-new) (lambda (text &rest _) (setq copied text)))
                 ((symbol-function 'dired) (lambda (path &rest _) (setq visited path)))
@@ -396,7 +492,8 @@
   "Match legacy and YAML transcript headers without creating a session."
   (dolist (header '("**Session ID:** saved" "session_id: \"saved\"" "no matching session"))
     (let* ((entry (list :session (agent-shell-consult-test--session "saved")))
-           (agent-shell-consult--saved-entries (list (cons "plain candidate" entry)))
+           (agent-shell-consult--lookup-entry
+            (lambda (text) (when (equal text "plain candidate") entry)))
            (agent-shell-dot-subdir-function (lambda (_) "/transcripts/"))
            viewed)
       (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
@@ -421,7 +518,8 @@
       (let ((buffer (current-buffer)))
         (setq-local agent-shell--state
                     `((:agent-config . ,config) (:session . ((:id . "original")))))
-        (cl-letf (((symbol-function 'agent-shell-buffers) (lambda () (list buffer)))
+        (cl-letf (((symbol-function 'agent-shell-buffers)
+                   (lambda () (ert-fail "Scanned existing buffers while forking")))
                   ((symbol-function 'agent-shell-start)
                    (lambda (&rest _) (ert-fail "Resumed the original instead of forking")))
                   ((symbol-function 'agent-shell--start)
@@ -435,7 +533,8 @@
 (ert-deftest agent-shell-consult-test-fork-action-checks-capabilities ()
   "Refuse unsupported saved-session forks and dispatch live buffers correctly."
   (let* ((entry (list :session (agent-shell-consult-test--session "original")))
-         (agent-shell-consult--saved-entries (list (cons "saved" entry)))
+         (agent-shell-consult--lookup-entry
+          (lambda (text) (when (equal text "saved") entry)))
          forked live)
     (cl-letf (((symbol-function 'agent-shell-consult--open)
                (lambda (data &optional fork)
@@ -467,6 +566,77 @@
     (should (= 24 (string-width display)))
     (should (string-suffix-p "..." display))
     (should (= (+ 2 12 2 13 2 8) (string-width (nth 2 affix))))))
+
+(ert-deftest agent-shell-consult-test-invisible-ids-disambiguate-live-buffers ()
+  "Identical candidate text resolves correctly, including deferred actions."
+  (agent-shell-consult--setup-embark)
+  (let ((first (generate-new-buffer "one"))
+        (second (generate-new-buffer "one two"))
+        (agent-shell-show-config-icons nil)
+        target selected)
+    (unwind-protect
+        (cl-letf (((symbol-function 'agent-shell--buffer-name-prefix) (lambda (_) ""))
+                  ((symbol-function 'agent-shell-consult--status)
+                   (lambda (&rest _) '("Ready" nil ready)))
+                  ((symbol-function 'agent-shell-consult--project)
+                   (lambda (buffer) (if (eq buffer first) "two three" "three"))))
+          (dolist (buffer (list first second))
+            (with-current-buffer buffer
+              (setq-local agent-shell--state
+                          `((:agent-config . ,(agent-shell-consult-test--config 'codex))))))
+          (let* ((entries (agent-shell-consult--entries (list first second)))
+                 (a (caar entries))
+                 (b (caadr entries))
+                 (agent-shell-consult--lookup-entry
+                  (lambda (candidate) (agent-shell-consult--entry candidate entries))))
+            (should (equal "one two three" (consult--tofu-strip a)))
+            (should (equal (consult--tofu-strip a) (consult--tofu-strip b)))
+            (should-not (equal (substring-no-properties a) (substring-no-properties b)))
+            (should (eq first (agent-shell-consult--buffer (substring-no-properties a))))
+            (should (eq second (agent-shell-consult--buffer (substring-no-properties b))))
+            (should (equal "one two" (get-text-property 0 'display b)))
+            (setq target (cdr (agent-shell-consult--embark-target
+                               'agent-shell-consult-buffer (substring-no-properties b)))))
+          ;; Renaming and leaving the picker must not lose the selected buffer.
+          (with-current-buffer second (rename-buffer "renamed" t))
+          (cl-letf (((symbol-function 'command-execute)
+                     (lambda (action &rest _)
+                       (funcall action (substring-no-properties target))))
+                    ((symbol-function 'switch-to-buffer)
+                     (lambda (buffer &rest _) (setq selected buffer)))
+                    ((symbol-function 'agent-shell-buffers)
+                     (lambda () (ert-fail "Reconstructed an identified target"))))
+            (embark--run-around-action-hooks
+             #'agent-shell-consult-action-switch (list :target target) t)
+            (should (eq second selected))))
+      (kill-buffer first)
+      (kill-buffer second))))
+
+(ert-deftest agent-shell-consult-test-invisible-ids-survive-refresh ()
+  "Session IDs remain stable as results reorder, disappear, and return."
+  (let* ((agent-shell-show-config-icons nil)
+         (config (agent-shell-consult-test--config 'codex))
+         (a (copy-tree (agent-shell-consult-test--session "a")))
+         (b (agent-shell-consult-test--session "b"))
+         (ids (make-hash-table :test #'equal)))
+    (cl-letf (((symbol-function 'agent-shell-buffers) (lambda () nil)))
+      (let* ((before (agent-shell-consult--session-entries (list (cons config (list a b))) ids))
+             (suffix (lambda (id entries)
+                       (substring
+                        (car (seq-find
+                              (lambda (entry)
+                                (equal id (map-elt (plist-get (cdr entry) :session) 'sessionId)))
+                              entries)) -1)))
+             (a-id (funcall suffix "a" before))
+             (b-id (funcall suffix "b" before)))
+        (agent-shell-consult--session-entries (list (cons config (list b))) ids)
+        (setf (alist-get 'title a) "Renamed session")
+        (let ((after (agent-shell-consult--session-entries
+                      (list (cons config (list b a (agent-shell-consult-test--session "c")))) ids)))
+          (should (equal b-id (funcall suffix "b" after)))
+          (should (equal a-id (funcall suffix "a" after)))
+          (should (= 3 (length (delete-dups
+                               (mapcar (lambda (entry) (substring (car entry) -1)) after))))))))))
 
 (ert-deftest agent-shell-consult-test-new-shell-uses-target-context ()
   "Start a fresh session using the target's agent and directory."

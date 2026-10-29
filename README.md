@@ -17,18 +17,12 @@ live previews, and Embark actions.
 - Resume saved sessions across configured agents and projects.
 - Use Embark to interrupt, fork, change models, and more.
 
-Ready sessions with unsent text show **Draft** in red and stay Active.
-Use the `d` filter to find them.
-
 With [agent-shell-attention](https://github.com/ultronozm/agent-shell-attention.el),
 a **●** beside the state marks unread output.
 Selecting a session clears the indicator; previewing leaves it unread.
 Pending permissions remain.
 
 ## Installation
-
-Requires Emacs 29.1+, Agent Shell 0.83.4+, acp.el 0.18.1+, and Consult 3.0+.
-Install Embark for its actions.
 
 ```elisp
 (use-package agent-shell-consult
@@ -38,6 +32,9 @@ Install Embark for its actions.
          (:map agent-shell-mode-map
                ("C-z b" . agent-shell-consult))))
 ```
+
+- *Dependencies*: Emacs 29.1+, Agent Shell 0.83.4+, acp.el 0.18.1+, and Consult 3.0+.
+- *Optional (but recommended) dependencies*: Embark, agent-shell-attention
 
 ## Saved sessions
 
