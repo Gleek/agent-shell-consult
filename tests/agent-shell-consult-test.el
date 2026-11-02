@@ -531,6 +531,24 @@
     (should (equal '(agent-shell-consult--with-target)
                    (alist-get 'agent-shell-consult-action-resume embark-around-action-hooks)))))
 
+(ert-deftest agent-shell-consult-test-unload-preserves-embark-customizations ()
+  "Cleanup removes owned registrations while keeping user maps and hooks."
+  (require 'embark)
+  (let ((embark-keymap-alist '((agent-shell-consult-buffer . user-live-map)))
+        (embark-transformer-alist '((other . ignore)))
+        (embark-default-action-overrides '((other . ignore)))
+        (embark-around-action-hooks '((agent-shell-consult-action-rename . (ignore))
+                                      (other . (ignore)))))
+    (agent-shell-consult--setup-embark)
+    (setf (alist-get 'agent-shell-consult-session embark-keymap-alist) 'user-saved-map)
+    (dotimes (_ 2) (should-not (agent-shell-consult-unload-function)))
+    (should (equal '((agent-shell-consult-session . user-saved-map)
+                     (agent-shell-consult-buffer . user-live-map)) embark-keymap-alist))
+    (should (equal '((other . ignore)) embark-transformer-alist))
+    (should (equal '((other . ignore)) embark-default-action-overrides))
+    (should (equal '((agent-shell-consult-action-rename . (ignore))
+                     (other . (ignore))) embark-around-action-hooks))))
+
 (ert-deftest agent-shell-consult-test-saved-session-utilities ()
   "Copy identifiers and native commands, or visit Dired, without resuming."
   (dolist (agent '(codex claude-code other))
@@ -729,6 +747,7 @@
 (ert-deftest agent-shell-consult-test-new-shell-uses-target-context ()
   "Start a fresh session using the target's agent and directory."
   (let ((config (agent-shell-consult-test--config 'codex))
+        (agent-shell-cwd-function (lambda () "/wrong/"))
         started displayed)
     (with-temp-buffer
       (setq-local default-directory "/tmp/"
@@ -738,14 +757,17 @@
         (with-temp-buffer
           (setq-local default-directory "/")
           (cl-letf (((symbol-function 'agent-shell--start)
-                     (lambda (&rest args) (setq started args) target))
+                     (cl-function
+                      (lambda (&key config session-strategy new-session)
+                        (setq started (list config session-strategy new-session
+                                             (agent-shell-cwd) default-directory))
+                        target)))
                     ((symbol-function 'switch-to-buffer)
                      (lambda (buffer) (setq displayed buffer))))
             (agent-shell-consult-action-new candidate)))
         (should (buffer-live-p target))
         (should (eq displayed target))
-        (should (equal started (list :config config :cwd "/tmp/"
-                                     :session-strategy 'new :new-session t)))))
+        (should (equal started (list config 'new t "/tmp/" "/tmp/")))))
     (should (eq (lookup-key agent-shell-consult-embark-map (kbd "n"))
                 #'agent-shell-consult-action-new))
     (should (eq (lookup-key agent-shell-consult-embark-map (kbd "r"))
@@ -758,13 +780,18 @@
          (session (copy-tree (agent-shell-consult-test--session "saved")))
          (entry (list :config config :session session))
          (target (propertize "saved" 'agent-shell-consult-entry entry))
+         (agent-shell-cwd-function (lambda () "/wrong/"))
          started displayed)
     (setf (alist-get 'cwd session) "/tmp")
     (with-temp-buffer
       (setq-local default-directory "/")
       (let ((new-buffer (current-buffer)))
         (cl-letf (((symbol-function 'agent-shell--start)
-                   (lambda (&rest args) (setq started args) new-buffer))
+                   (cl-function
+                    (lambda (&key config session-strategy new-session)
+                      (setq started (list config session-strategy new-session
+                                           (agent-shell-cwd) default-directory))
+                      new-buffer)))
                   ((symbol-function 'agent-shell-consult--open)
                    (lambda (&rest _) (ert-fail "Resumed the saved session")))
                   ((symbol-function 'command-execute)
@@ -776,8 +803,7 @@
            'agent-shell-consult-action-new
            (list :target target) t))
         (should (eq displayed new-buffer))
-        (should (equal started (list :config config :cwd "/tmp/"
-                                    :session-strategy 'new :new-session t)))))
+        (should (equal started (list config 'new t "/tmp/" "/tmp/")))))
     (should (eq (lookup-key agent-shell-consult-session-embark-map (kbd "n"))
                 #'agent-shell-consult-action-new))))
 

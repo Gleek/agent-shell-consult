@@ -212,11 +212,10 @@ Reuse the picker's IDS table when supplied."
   (let ((ids (or ids (make-hash-table :test #'equal)))
         (seen (make-hash-table :test #'equal)) entries)
     (dolist (buffer (agent-shell-buffers))
-      (with-current-buffer buffer
-        (puthash (agent-shell-consult--session-key
-                  (map-elt agent-shell--state :agent-config)
-                  (map-nested-elt agent-shell--state '(:session :id)))
-                 t seen)))
+      (puthash (agent-shell-consult--session-key
+                (agent-shell-get-config buffer)
+                (agent-shell-session-id :shell-buffer buffer))
+               t seen))
     (dolist (source sources)
       (let* ((config (car source))
              (agent (or (map-elt config :mode-line-name)
@@ -284,11 +283,10 @@ When FORK is non-nil, create a fork instead of resuming the session."
               (unless fork
                 (seq-find
                  (lambda (buffer)
-                   (with-current-buffer buffer
-                     (equal (agent-shell-consult--session-key config id)
-                            (agent-shell-consult--session-key
-                             (map-elt agent-shell--state :agent-config)
-                             (map-nested-elt agent-shell--state '(:session :id))))))
+                   (equal (agent-shell-consult--session-key config id)
+                          (agent-shell-consult--session-key
+                           (agent-shell-get-config buffer)
+                           (agent-shell-session-id :shell-buffer buffer))))
                  (agent-shell-buffers)))))
         (or existing
             (let* ((cwd (file-name-as-directory (map-elt session 'cwd)))
@@ -356,8 +354,7 @@ Permission requests are not unread output.  Attention is optional."
            (kind (if (eq status 'ready)
                      (cond ((not (map-elt agent-shell--state :initialized))
                             'starting)
-                           ((not (map-nested-elt agent-shell--state
-                                                 '(:session :id)))
+                           ((not (agent-shell-session-id))
                             'no-session)
                            ((agent-shell--input) 'draft)
                            (t 'ready))
@@ -393,9 +390,7 @@ Permission requests are not unread output.  Attention is optional."
          (now (current-time))
          (identifiers
           (mapcar (lambda (buffer)
-                    (with-current-buffer buffer
-                      (map-nested-elt agent-shell--state
-                                      '(:agent-config :identifier))))
+                    (map-elt (agent-shell-get-config buffer) :identifier))
                   buffers))
          (short-names (seq-every-p (lambda (id) (eq id (car identifiers)))
                                     identifiers)))
@@ -404,7 +399,7 @@ Permission requests are not unread output.  Attention is optional."
        (with-current-buffer buffer
          (pcase-let* ((`(,status ,age ,status-kind)
                        (agent-shell-consult--status buffer now))
-                      (config (map-elt agent-shell--state :agent-config))
+                      (config (agent-shell-get-config buffer))
                       (prefix (agent-shell--buffer-name-prefix
                                (map-elt config :buffer-name)))
                       (name (if (and short-names prefix)
@@ -631,9 +626,12 @@ Assign stable candidate IDs using the picker's IDS table."
                              (file-name-as-directory
                               (map-elt (plist-get entry :session) 'cwd)))
                      (with-current-buffer (agent-shell-consult--buffer candidate)
-                       (list (map-elt agent-shell--state :agent-config)
-                             default-directory)))))
-     (agent-shell--start :config (car context) :cwd (cadr context)
+                       (list (agent-shell-get-config (current-buffer))
+                             default-directory))))
+          (cwd (cadr context))
+          (default-directory cwd)
+          (agent-shell-cwd-function (lambda () cwd)))
+     (agent-shell--start :config (car context)
                          :session-strategy 'new :new-session t))))
 
 (defun agent-shell-consult-action-fork (candidate)
@@ -792,17 +790,22 @@ Embark strips target properties when injecting input into commands."
               (get-text-property 0 'agent-shell-consult-entry target)))))
     (apply (plist-get args :run) args)))
 
+(defconst agent-shell-consult--embark-settings
+  '((embark-keymap-alist
+     (agent-shell-consult-buffer . agent-shell-consult-embark-map)
+     (agent-shell-consult-session . agent-shell-consult-session-embark-map))
+    (embark-transformer-alist
+     (agent-shell-consult-buffer . agent-shell-consult--embark-target))
+    (embark-default-action-overrides
+     (agent-shell-consult-session . agent-shell-consult-action-resume)))
+  "Default Embark registrations owned by this package.")
+
 (defun agent-shell-consult--setup-embark ()
   "Register picker actions when Embark is installed."
   (when (require 'embark nil t)
-    (cl-pushnew '(agent-shell-consult-buffer . agent-shell-consult-embark-map)
-                embark-keymap-alist :key #'car)
-    (cl-pushnew '(agent-shell-consult-session . agent-shell-consult-session-embark-map)
-                embark-keymap-alist :key #'car)
-    (cl-pushnew '(agent-shell-consult-buffer . agent-shell-consult--embark-target)
-                embark-transformer-alist :key #'car)
-    (cl-pushnew '(agent-shell-consult-session . agent-shell-consult-action-resume)
-                embark-default-action-overrides :key #'car)
+    (pcase-dolist (`(,variable . ,settings) agent-shell-consult--embark-settings)
+      (dolist (setting settings)
+        (cl-pushnew (copy-tree setting) (symbol-value variable) :key #'car)))
     (dolist (map (list agent-shell-consult-embark-map
                        agent-shell-consult-session-embark-map))
       (map-keymap
@@ -810,6 +813,19 @@ Embark strips target properties when injecting input into commands."
          (cl-pushnew #'agent-shell-consult--with-target
                      (alist-get action embark-around-action-hooks)))
        map))))
+
+(defun agent-shell-consult-unload-function ()
+  "Remove this package's Embark registrations."
+  (pcase-dolist (`(,variable . ,settings) agent-shell-consult--embark-settings)
+    (when (boundp variable)
+      (set variable (seq-remove (lambda (setting) (member setting settings))
+                                (symbol-value variable)))))
+  (when (boundp 'embark-around-action-hooks)
+    (setq embark-around-action-hooks
+          (cl-loop for (action . hooks) in embark-around-action-hooks
+                   for remaining = (remq #'agent-shell-consult--with-target hooks)
+                   when remaining collect (cons action remaining))))
+  nil)
 
 ;;;###autoload
 (defun agent-shell-consult-refresh-sessions ()
