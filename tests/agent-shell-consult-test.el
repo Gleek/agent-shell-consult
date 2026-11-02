@@ -442,7 +442,8 @@
           (dolist (binding '(("w" . agent-shell-consult-action-copy-session-id)
                              ("d" . agent-shell-consult-action-open-directory)
                              ("c" . agent-shell-consult-action-copy-resume-command)
-                             ("t" . agent-shell-consult-action-view-saved-transcript)))
+                             ("t" . agent-shell-consult-action-view-saved-transcript)
+                             ("p" . agent-shell-consult-action-copy-transcript-path)))
             (should (eq (lookup-key map (kbd (car binding))) (cdr binding))))
           (should (eq (alist-get type embark-default-action-overrides)
                       #'agent-shell-consult-action-resume))
@@ -495,6 +496,7 @@
            (agent-shell-consult--lookup-entry
             (lambda (text) (when (equal text "plain candidate") entry)))
            (agent-shell-dot-subdir-function (lambda (_) "/transcripts/"))
+           (kill-ring nil)
            viewed)
       (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
                 ((symbol-function 'directory-files) (lambda (&rest _) '("/transcripts/one.md")))
@@ -503,10 +505,31 @@
                 ((symbol-function 'view-file) (lambda (path) (setq viewed path)))
                 ((symbol-function 'agent-shell-start) (lambda (&rest _) (ert-fail "Started an agent"))))
         (if (equal header "no matching session")
-            (should-error (agent-shell-consult-action-view-saved-transcript "plain candidate")
-                          :type 'user-error)
+            (progn
+              (should-error (agent-shell-consult-action-view-saved-transcript "plain candidate")
+                            :type 'user-error)
+              (should-error (agent-shell-consult-action-copy-transcript-path "plain candidate")
+                            :type 'user-error)
+              (should-not kill-ring))
           (agent-shell-consult-action-view-saved-transcript "plain candidate")
-          (should (equal viewed "/transcripts/one.md")))))))
+          (should (equal viewed "/transcripts/one.md"))
+          (agent-shell-consult-action-copy-transcript-path "plain candidate")
+          (should (equal (car kill-ring) "/transcripts/one.md")))))))
+
+(ert-deftest agent-shell-consult-test-copy-live-transcript-path ()
+  "Copy the live buffer's transcript path and report disabled transcripts."
+  (with-temp-buffer
+    (let ((candidate (propertize "live" 'agent-shell-consult-buffer (current-buffer)))
+          (kill-ring nil))
+      (setq-local agent-shell--transcript-file "/tmp/live-transcript.md")
+      (agent-shell-consult-action-copy-transcript-path candidate)
+      (should (equal (car kill-ring) "/tmp/live-transcript.md"))
+      (setq-local agent-shell--transcript-file nil)
+      (should-error (agent-shell-consult-action-copy-transcript-path candidate)
+                    :type 'user-error)
+      (should (equal (car kill-ring) "/tmp/live-transcript.md"))
+      (should (eq (lookup-key agent-shell-consult-embark-map (kbd "p"))
+                  #'agent-shell-consult-action-copy-transcript-path)))))
 
 (ert-deftest agent-shell-consult-test-fork-saved-session ()
   "Fork a saved conversation without resuming or reusing its original buffer."

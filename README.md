@@ -65,6 +65,7 @@ Existing buffers offer:
 | `l`   | Set the model                 |
 | `i`   | Interrupt the current request |
 | `t`   | Open the session transcript   |
+| `p`   | Copy the transcript path      |
 | `L`   | Toggle ACP logging            |
 | `T`   | View ACP traffic              |
 
@@ -78,6 +79,7 @@ Saved sessions offer:
 | `d`   | Open the working directory in Dired   |
 | `c`   | Copy a native CLI resume command     |
 | `t`   | View an existing Agent Shell transcript |
+| `p`   | Copy the transcript path             |
 
 ## Development
 

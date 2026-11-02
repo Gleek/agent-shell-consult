@@ -684,9 +684,8 @@ Assign stable candidate IDs using the picker's IDS table."
                                  (append command (list (map-elt session 'sessionId))) " ")))
     (message "Resume command copied")))
 
-(defun agent-shell-consult-action-view-saved-transcript (candidate)
-  "View CANDIDATE's existing Agent Shell transcript without resuming."
-  (interactive "sSaved session: ")
+(defun agent-shell-consult--saved-transcript (candidate)
+  "Return CANDIDATE's existing Agent Shell transcript path."
   (let* ((session (agent-shell-consult--saved-session candidate))
          (cwd (file-name-as-directory (map-elt session 'cwd)))
          (default-directory cwd)
@@ -705,7 +704,23 @@ Assign stable candidate IDs using the picker's IDS table."
                  (file-error nil)))
              (reverse (directory-files directory t "\\.md\\'"))))))
     (unless file (user-error "No Agent Shell transcript found for this session"))
-    (view-file file)))
+    file))
+
+(defun agent-shell-consult-action-view-saved-transcript (candidate)
+  "View CANDIDATE's existing Agent Shell transcript without resuming."
+  (interactive "sSaved session: ")
+  (view-file (agent-shell-consult--saved-transcript candidate)))
+
+(defun agent-shell-consult-action-copy-transcript-path (candidate)
+  "Copy CANDIDATE's transcript path to the kill ring."
+  (interactive "sAgent session: ")
+  (let ((file (if (agent-shell-consult--saved-entry candidate)
+                  (agent-shell-consult--saved-transcript candidate)
+                (with-current-buffer (agent-shell-consult--buffer candidate)
+                  agent-shell--transcript-file))))
+    (unless file (user-error "No Agent Shell transcript found for this session"))
+    (kill-new (expand-file-name file))
+    (message "Transcript path copied")))
 
 (defun agent-shell-consult-action-kill (candidate)
   "Kill CANDIDATE's buffer."
@@ -740,6 +755,7 @@ Assign stable candidate IDs using the picker's IDS table."
                        ("T" . agent-shell-consult-action-view-traffic)
                        ("L" . agent-shell-consult-action-toggle-logging)
                        ("t" . agent-shell-consult-action-open-transcript)
+                       ("p" . agent-shell-consult-action-copy-transcript-path)
                        ("f" . agent-shell-consult-action-fork)
                        ("i" . agent-shell-consult-action-interrupt)
                        ("l" . agent-shell-consult-action-set-model)
@@ -761,6 +777,7 @@ Assign stable candidate IDs using the picker's IDS table."
     (define-key map (kbd "d") #'agent-shell-consult-action-open-directory)
     (define-key map (kbd "c") #'agent-shell-consult-action-copy-resume-command)
     (define-key map (kbd "t") #'agent-shell-consult-action-view-saved-transcript)
+    (define-key map (kbd "p") #'agent-shell-consult-action-copy-transcript-path)
     map)
   "Embark actions for saved Agent Shell sessions.")
 
