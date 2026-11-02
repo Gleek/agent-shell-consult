@@ -39,7 +39,6 @@
 (require 'seq)
 (require 'subr-x)
 
-(declare-function agent-shell-rename-buffer "agent-shell")
 (defvar embark-keymap-alist)
 (defvar embark-transformer-alist)
 (defvar embark-default-action-overrides)
@@ -727,7 +726,7 @@ Assign stable candidate IDs using the picker's IDS table."
      (agent-shell-consult--call candidate #',function)))
 
 (agent-shell-consult--action agent-shell-consult-action-reload agent-shell-reload)
-(agent-shell-consult--action agent-shell-consult-action-rename agent-shell-rename-buffer)
+(agent-shell-consult--action agent-shell-consult-action-rename shell-maker-rename-buffer)
 (agent-shell-consult--action agent-shell-consult-action-set-mode agent-shell-set-session-mode)
 (agent-shell-consult--action agent-shell-consult-action-set-model agent-shell-set-session-model)
 (agent-shell-consult--action agent-shell-consult-action-interrupt agent-shell-interrupt)

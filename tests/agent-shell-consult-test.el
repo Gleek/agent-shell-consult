@@ -663,5 +663,18 @@
     (should (eq (lookup-key agent-shell-consult-embark-map (kbd "r"))
                 #'agent-shell-consult-action-rename))))
 
+(ert-deftest agent-shell-consult-test-rename-uses-target-buffer ()
+  "Rename the target through Shell Maker's public command."
+  (with-temp-buffer
+    (setq major-mode 'agent-shell-mode)
+    (let* ((target (current-buffer))
+           (candidate (propertize "target" 'agent-shell-consult-buffer target))
+           (name (generate-new-buffer-name "renamed-agent")))
+      (cl-letf (((symbol-function 'read-string) (lambda (&rest _) name))
+                ((symbol-function 'shell-maker-major-mode) (lambda (_) 'agent-shell-mode)))
+        (with-temp-buffer (agent-shell-consult-action-rename candidate)))
+      (should (equal name (buffer-name target)))
+      (should (equal name shell-maker--buffer-name-override)))))
+
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here
