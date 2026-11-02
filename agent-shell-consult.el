@@ -43,11 +43,9 @@
 (defvar embark-transformer-alist)
 (defvar embark-default-action-overrides)
 (defvar embark-around-action-hooks)
-(declare-function agent-shell-attention--pending-live-entries "ext:agent-shell-attention")
-(declare-function agent-shell-attention--pending-entry-permission-p "ext:agent-shell-attention")
-(declare-function agent-shell-attention--permission-pending-p "ext:agent-shell-attention")
-(declare-function agent-shell-attention--clear-buffer "ext:agent-shell-attention")
-(declare-function agent-shell-attention--maybe-clear-current "ext:agent-shell-attention")
+(declare-function agent-shell-attention-unread-p "ext:agent-shell-attention")
+(declare-function agent-shell-attention-acknowledge "ext:agent-shell-attention")
+(defvar agent-shell-attention-inhibit-auto-acknowledge)
 
 (defgroup agent-shell-consult nil
   "Consult interface for Agent Shell."
@@ -310,16 +308,8 @@ When FORK is non-nil, create a fork instead of resuming the session."
 (defun agent-shell-consult--unread-p (buffer)
   "Return non-nil when attention tracks unread output for BUFFER.
 Permission requests are not unread output.  Attention is optional."
-  (when (seq-every-p
-         #'fboundp
-         '(agent-shell-attention--pending-live-entries
-           agent-shell-attention--pending-entry-permission-p
-           agent-shell-attention--permission-pending-p
-           agent-shell-attention--clear-buffer))
-    (when-let* ((entry (alist-get buffer
-                                 (agent-shell-attention--pending-live-entries))))
-      (and (not (agent-shell-attention--pending-entry-permission-p entry))
-           (not (agent-shell-attention--permission-pending-p buffer))))))
+  (and (fboundp 'agent-shell-attention-unread-p)
+       (agent-shell-attention-unread-p buffer)))
 
 (defun agent-shell-consult--buffer (candidate)
   "Return the live Agent Shell buffer stored on CANDIDATE."
@@ -527,8 +517,8 @@ stored buffer's full name before delegating to Consult."
           (when (and (eq action 'return)
                      (buffer-live-p buffer)
                      (get-buffer-window buffer t)
-                     (agent-shell-consult--unread-p buffer))
-            (agent-shell-attention--clear-buffer buffer)))))))
+                     (fboundp 'agent-shell-attention-acknowledge))
+            (agent-shell-attention-acknowledge buffer)))))))
 
 (defun agent-shell-consult--widths ()
   "Return stable column widths based on the minibuffer window."
@@ -592,9 +582,7 @@ Assign stable candidate IDs using the picker's IDS table."
           (lambda (candidate) (agent-shell-consult--entry candidate entries)))
          (widths (agent-shell-consult--widths))
          ;; Preview must not clear unread output until selection is confirmed.
-         (buffer-list-update-hook
-          (remq #'agent-shell-attention--maybe-clear-current
-                buffer-list-update-hook))
+         (agent-shell-attention-inhibit-auto-acknowledge t)
          (selection
           (consult--read (if agent-shell-consult-session-agents
                              (agent-shell-consult--collection

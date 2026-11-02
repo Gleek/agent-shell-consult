@@ -729,5 +729,24 @@
       (should (equal name (buffer-name target)))
       (should (equal name shell-maker--buffer-name-override)))))
 
+(ert-deftest agent-shell-consult-test-attention-preview-acknowledgment ()
+  "Preview and cancellation leave output unread; confirmation acknowledges it."
+  (with-temp-buffer
+    (let* ((buffer (current-buffer))
+           (candidate "session")
+           (entries (list (cons candidate (list :buffer buffer))))
+           acknowledged)
+      (cl-letf (((symbol-function 'consult--buffer-state)
+                 (lambda () (lambda (&rest _) nil)))
+                ((symbol-function 'agent-shell-attention-acknowledge)
+                 (lambda (target) (push target acknowledged)))
+                ((symbol-function 'get-buffer-window) (lambda (&rest _) t)))
+        (let ((state (agent-shell-consult--preview-state (lambda () entries))))
+          (funcall state 'preview candidate)
+          (funcall state 'return nil)
+          (should-not acknowledged)
+          (funcall state 'return candidate)
+          (should (equal acknowledged (list buffer))))))))
+
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here
