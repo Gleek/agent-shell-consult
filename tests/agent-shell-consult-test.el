@@ -686,6 +686,36 @@
     (should (eq (lookup-key agent-shell-consult-embark-map (kbd "r"))
                 #'agent-shell-consult-action-rename))))
 
+(ert-deftest agent-shell-consult-test-new-shell-from-saved-session ()
+  "Start fresh from a saved target, including Embark's plain text input."
+  (agent-shell-consult--setup-embark)
+  (let* ((config (agent-shell-consult-test--config 'codex))
+         (session (copy-tree (agent-shell-consult-test--session "saved")))
+         (entry (list :config config :session session))
+         (target (propertize "saved" 'agent-shell-consult-entry entry))
+         started displayed)
+    (setf (alist-get 'cwd session) "/tmp")
+    (with-temp-buffer
+      (setq-local default-directory "/")
+      (let ((new-buffer (current-buffer)))
+        (cl-letf (((symbol-function 'agent-shell--start)
+                   (lambda (&rest args) (setq started args) new-buffer))
+                  ((symbol-function 'agent-shell-consult--open)
+                   (lambda (&rest _) (ert-fail "Resumed the saved session")))
+                  ((symbol-function 'command-execute)
+                   (lambda (action &rest _)
+                     (funcall action (substring-no-properties target))))
+                  ((symbol-function 'switch-to-buffer)
+                   (lambda (buffer) (setq displayed buffer))))
+          (embark--run-around-action-hooks
+           'agent-shell-consult-action-new
+           (list :target target) t))
+        (should (eq displayed new-buffer))
+        (should (equal started (list :config config :cwd "/tmp/"
+                                    :session-strategy 'new :new-session t)))))
+    (should (eq (lookup-key agent-shell-consult-session-embark-map (kbd "n"))
+                #'agent-shell-consult-action-new))))
+
 (ert-deftest agent-shell-consult-test-rename-uses-target-buffer ()
   "Rename the target through Shell Maker's public command."
   (with-temp-buffer

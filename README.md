@@ -75,6 +75,7 @@ Saved sessions offer:
 |-------|--------------------------------------|
 | `RET` | Resume the session                   |
 | `f`   | Fork into a separate session         |
+| `n`   | New shell in the same project        |
 | `w`   | Copy the session ID                  |
 | `d`   | Open the working directory in Dired   |
 | `c`   | Copy a native CLI resume command     |

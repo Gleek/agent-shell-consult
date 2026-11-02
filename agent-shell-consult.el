@@ -637,9 +637,15 @@ Assign stable candidate IDs using the picker's IDS table."
   "Start a fresh shell with CANDIDATE's agent and working directory."
   (interactive "sAgent shell: ")
   (switch-to-buffer
-   (with-current-buffer (agent-shell-consult--buffer candidate)
-     (agent-shell--start :config (map-elt agent-shell--state :agent-config)
-                         :cwd default-directory
+   (let* ((entry (agent-shell-consult--saved-entry candidate))
+          (context (if entry
+                       (list (plist-get entry :config)
+                             (file-name-as-directory
+                              (map-elt (plist-get entry :session) 'cwd)))
+                     (with-current-buffer (agent-shell-consult--buffer candidate)
+                       (list (map-elt agent-shell--state :agent-config)
+                             default-directory)))))
+     (agent-shell--start :config (car context) :cwd (cadr context)
                          :session-strategy 'new :new-session t))))
 
 (defun agent-shell-consult-action-fork (candidate)
@@ -773,6 +779,7 @@ Assign stable candidate IDs using the picker's IDS table."
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "RET") #'agent-shell-consult-action-resume)
     (define-key map (kbd "f") #'agent-shell-consult-action-fork)
+    (define-key map (kbd "n") #'agent-shell-consult-action-new)
     (define-key map (kbd "w") #'agent-shell-consult-action-copy-session-id)
     (define-key map (kbd "d") #'agent-shell-consult-action-open-directory)
     (define-key map (kbd "c") #'agent-shell-consult-action-copy-resume-command)
