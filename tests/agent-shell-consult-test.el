@@ -5,6 +5,8 @@
 (require 'consult)
 (require 'agent-shell-consult)
 
+(defvar agent-shell-attention-inhibit-auto-acknowledge)
+
 (defun agent-shell-consult-test--config (id)
   "Return a minimal agent config for ID."
   `((:identifier . ,id) (:mode-line-name . ,(symbol-name id))
@@ -146,6 +148,69 @@
         (funcall state 'preview candidate)
         (funcall state 'return candidate)
         (should (equal calls '((return nil) (preview nil))))))))
+
+(ert-deftest agent-shell-consult-test-attention-picker-acknowledgement ()
+  "Only confirmed displayed replies are acknowledged; cancellation preserves them."
+  (dolist (outcome '(confirm cancel hidden permission))
+    (save-window-excursion
+      (let ((original (current-buffer))
+            (agent-shell-consult-session-agents nil)
+            (agent-shell-attention-inhibit-auto-acknowledge nil)
+            (unread (not (eq outcome 'permission)))
+            acknowledged restored)
+        (with-temp-buffer
+          (let* ((target (current-buffer))
+                 (entries (list (cons "target" (list :buffer target))))
+                 (buffer-list-update-hook
+                  (list (lambda ()
+                          (unless agent-shell-attention-inhibit-auto-acknowledge
+                            (setq unread nil))))))
+            (cl-letf (((symbol-function 'agent-shell-attention-unread-p)
+                       (lambda (buffer) (and (eq buffer target) unread)))
+                      ((symbol-function 'agent-shell-attention-acknowledge)
+                       (lambda (buffer)
+                         (should (eq buffer target))
+                         (should agent-shell-attention-inhibit-auto-acknowledge)
+                         (setq acknowledged t unread nil)))
+                      ((symbol-function 'agent-shell-consult--entries) (lambda (&rest _) entries))
+                      ((symbol-function 'agent-shell-consult--open) (lambda (_) target))
+                      ((symbol-function 'consult--buffer-state)
+                       (lambda ()
+                         (lambda (action name)
+                           (unless (eq outcome 'hidden)
+                             (switch-to-buffer (or name original)))
+                           (when (eq action 'return)
+                             (should agent-shell-attention-inhibit-auto-acknowledge)
+                             (run-hooks 'buffer-list-update-hook)
+                             (setq restored t)))))
+                      ((symbol-function 'consult--read)
+                       (lambda (_table &rest options)
+                         (let ((state (plist-get options :state)))
+                           (unwind-protect
+                               (progn
+                                 (funcall state 'preview "target")
+                                 (should-not acknowledged)
+                                 (when (eq outcome 'cancel) (signal 'quit nil))
+                                 "target")
+                             (funcall state 'return
+                                      (unless (eq outcome 'cancel) "target")))))))
+              (condition-case nil (agent-shell-consult--read (list target)) (quit nil))
+              (should restored)
+              (should (eq acknowledged (eq outcome 'confirm)))
+              (should (eq unread (and (memq outcome '(cancel hidden)) t)))
+              (should-not agent-shell-attention-inhibit-auto-acknowledge))))))))
+
+(ert-deftest agent-shell-consult-test-attention-optional-api ()
+  "Absent or partial public APIs do not prevent buffer selection."
+  (dolist (predicate '(nil t))
+    (cl-letf (((symbol-function 'agent-shell-attention-unread-p)
+               (when predicate (lambda (_) t)))
+              ((symbol-function 'agent-shell-attention-acknowledge) nil)
+              ((symbol-function 'consult--buffer-state) (lambda () #'ignore)))
+      (should (eq predicate (agent-shell-consult--unread-p (current-buffer))))
+      (let* ((entries (list (cons "target" (list :buffer (current-buffer)))))
+             (state (agent-shell-consult--preview-state (lambda () entries))))
+        (funcall state 'return "target")))))
 
 (ert-deftest agent-shell-consult-test-picker-merges-agents-after-buffers ()
   "Keep group order as agents arrive, then cancel discovery on exit."
