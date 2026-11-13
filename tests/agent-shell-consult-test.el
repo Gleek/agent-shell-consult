@@ -820,5 +820,43 @@
       (should (equal name (buffer-name target)))
       (should (equal name shell-maker--buffer-name-override)))))
 
+(ert-deftest agent-shell-consult-test-queued-message-count ()
+  "Show a muted, current count only for nonempty queues."
+  (with-temp-buffer
+    (setq-local agent-shell--state (list (cons :pending-prompts nil)))
+    (let* ((candidate "target")
+           (entries (list (cons candidate
+                                (list :buffer (current-buffer) :name candidate
+                                      :project "tmp" :status "Working" :age "5m" :title "")))))
+      (cl-letf (((symbol-function 'agent-shell-consult--unread-p) #'ignore))
+        (dolist (prompts '(nil ("first") ("first" "second") nil))
+          (setf (map-elt agent-shell--state :pending-prompts) prompts)
+          (let* ((annotation (nth 2 (agent-shell-consult--affix
+                                    candidate entries '(24 12 24 8))))
+                 (position (string-match "([0-9]+ queued)" annotation)))
+            (if prompts
+                (progn
+                  (should position)
+                  (should (equal (match-string 0 annotation)
+                                 (if (cdr prompts) "(2 queued)" "(1 queued)")))
+                  (should (string-match-p "Working ([0-9]+ queued) +5m" annotation))
+                  (should (eq (get-text-property position 'face annotation) 'shadow)))
+              (should-not position))
+            (should (= (string-match "5m" annotation)
+                       (+ (- 24 (length candidate)) 2 12 2 24 2)))))))))
+
+(ert-deftest agent-shell-consult-test-remove-queue-uses-target-buffer ()
+  "Invoke the native queue removal command interactively in the target."
+  (with-temp-buffer
+    (let* ((target (current-buffer))
+           (candidate (propertize "target" 'agent-shell-consult-buffer target))
+           called)
+      (cl-letf (((symbol-function 'agent-shell-prompt-queue-remove)
+                 (lambda () (interactive) (setq called (current-buffer)))))
+        (with-temp-buffer (agent-shell-consult-action-remove-queue candidate)))
+      (should (eq called target))
+      (should (eq (lookup-key agent-shell-consult-embark-map (kbd "q"))
+                  #'agent-shell-consult-action-remove-queue)))))
+
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here

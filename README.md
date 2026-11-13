@@ -9,7 +9,7 @@ live previews, and Embark actions.
 
 
 
-- See each session's project, state, idle time, and title.
+- See each session's project, state, idle time, queued message count, and title.
 - Search by buffer name, project, or session title.
 - Filter by current project or state, including drafts.
 - Preview sessions as you move through the list.
@@ -64,6 +64,7 @@ Existing buffers offer:
 | `m`   | Set the session mode          |
 | `l`   | Set the model                 |
 | `i`   | Interrupt the current request |
+| `q`   | Remove queued messages        |
 | `t`   | Open the session transcript   |
 | `p`   | Copy the transcript path      |
 | `L`   | Toggle ACP logging            |

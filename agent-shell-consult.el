@@ -484,11 +484,17 @@ Permission requests are not unread output.  Attention is optional."
          (padding (+ 2 (- (nth 0 widths) (string-width name))))
          (project (truncate-string-to-width (plist-get entry :project)
                                             (nth 1 widths) nil nil "..."))
+         (queued (when-let* ((buffer (plist-get entry :buffer))
+                            ((buffer-live-p buffer)))
+                   (with-current-buffer buffer
+                     (length (map-elt agent-shell--state :pending-prompts)))))
          (status (concat (plist-get entry :status)
                          (when (and (plist-get entry :buffer)
                                     (agent-shell-consult--unread-p
                                      (plist-get entry :buffer)))
-                           (propertize " ●" 'face 'agent-shell-success))))
+                           (propertize " ●" 'face 'agent-shell-success))
+                         (when (and queued (> queued 0))
+                           (propertize (format " (%d queued)" queued) 'face 'shadow))))
          (age (or (plist-get entry :age) ""))
          (title (plist-get entry :title)))
     (list (propertize candidate 'display name)
@@ -526,7 +532,7 @@ stored buffer's full name before delegating to Consult."
   (let ((width (window-body-width (minibuffer-window))))
     (list (min 50 (max 24 (/ width 3)))
           (min 24 (max 12 (/ width 6)))
-          13 8)))
+          24 8)))
 
 (defun agent-shell-consult--collection (buffer-entries on-update ids)
   "Return a Consult collection combining BUFFER-ENTRIES and saved sessions.
@@ -742,6 +748,7 @@ Assign stable candidate IDs using the picker's IDS table."
 (agent-shell-consult--action agent-shell-consult-action-set-mode agent-shell-set-session-mode)
 (agent-shell-consult--action agent-shell-consult-action-set-model agent-shell-set-session-model)
 (agent-shell-consult--action agent-shell-consult-action-interrupt agent-shell-interrupt)
+(agent-shell-consult--action agent-shell-consult-action-remove-queue agent-shell-prompt-queue-remove)
 (agent-shell-consult--action agent-shell-consult-action-open-transcript agent-shell-open-transcript)
 (agent-shell-consult--action agent-shell-consult-action-view-traffic agent-shell-view-traffic)
 (agent-shell-consult--action agent-shell-consult-action-toggle-logging agent-shell-toggle-logging)
@@ -755,6 +762,7 @@ Assign stable candidate IDs using the picker's IDS table."
                        ("p" . agent-shell-consult-action-copy-transcript-path)
                        ("f" . agent-shell-consult-action-fork)
                        ("i" . agent-shell-consult-action-interrupt)
+                       ("q" . agent-shell-consult-action-remove-queue)
                        ("l" . agent-shell-consult-action-set-model)
                        ("m" . agent-shell-consult-action-set-mode)
                        ("n" . agent-shell-consult-action-new)
