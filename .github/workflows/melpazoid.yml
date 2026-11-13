@@ -27,4 +27,5 @@ jobs:
           LOCAL_REPO: ${{ github.workspace }}
           RECIPE: '(agent-shell-consult :fetcher github :repo "Gleek/agent-shell-consult")'
           WARN_IS_ERROR: 'true'
+          EXIST_OK: 'true'
         run: make -C "$RUNNER_TEMP/melpazoid"
