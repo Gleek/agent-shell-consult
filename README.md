@@ -64,7 +64,6 @@ Existing buffers offer:
 | `m`   | Set the session mode          |
 | `l`   | Set the model                 |
 | `i`   | Interrupt the current request |
-| `q`   | Remove queued messages        |
 | `t`   | Open the session transcript   |
 | `p`   | Copy the transcript path      |
 | `L`   | Toggle ACP logging            |

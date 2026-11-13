@@ -845,18 +845,5 @@
             (should (= (string-match "5m" annotation)
                        (+ (- 24 (length candidate)) 2 12 2 24 2)))))))))
 
-(ert-deftest agent-shell-consult-test-remove-queue-uses-target-buffer ()
-  "Invoke the native queue removal command interactively in the target."
-  (with-temp-buffer
-    (let* ((target (current-buffer))
-           (candidate (propertize "target" 'agent-shell-consult-buffer target))
-           called)
-      (cl-letf (((symbol-function 'agent-shell-prompt-queue-remove)
-                 (lambda () (interactive) (setq called (current-buffer)))))
-        (with-temp-buffer (agent-shell-consult-action-remove-queue candidate)))
-      (should (eq called target))
-      (should (eq (lookup-key agent-shell-consult-embark-map (kbd "q"))
-                  #'agent-shell-consult-action-remove-queue)))))
-
 (provide 'agent-shell-consult-test)
 ;;; agent-shell-consult-test.el ends here
